@@ -1072,7 +1072,7 @@ int sc_attachment(void)
 		if (i < 3)
 			origin[i] = atof(c);
 		else
-			angles[i] = atof(c) * (M_PI / 180.0);
+			angles[i - 3] = atof(c) * (M_PI / 180.0);
 	}
 	attachments[numattachments].matrix = computebonematrix(origin[0], origin[1], origin[2], angles[0], angles[1], angles[2]);
 
