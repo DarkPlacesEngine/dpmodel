@@ -1,4 +1,13 @@
 
+// converter for .smd files (and a .txt script) to .dpm
+// written by Forest 'LordHavoc' Hale but placed into public domain
+//
+// disclaimer: Forest Hale is not not responsible if this code blinds you with
+// its horrible design, sets your house on fire, makes you cry,
+// or anything else - use at your own risk.
+//
+// Yes, this is perhaps my second worst code ever (next to zmodel).
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -12,28 +21,32 @@
 #pragma warning (disable : 4244)
 #endif
 
+#define MAX_FILEPATH 1024
 #define MAX_NAME 32
 #define MAX_FRAMES 65536
 #define MAX_TRIS 65536
 #define MAX_VERTS (MAX_TRIS * 3)
 #define MAX_BONES 256
 #define MAX_SHADERS 256
-#define MAX_FILESIZE 16777216
+#define MAX_FILESIZE (64*1024*1024)
 #define MAX_ATTACHMENTS MAX_BONES
 // model format related flags
 #define DPMBONEFLAG_ATTACH 1
 
-char outputdir_name[1024];
-char output_name[1024];
-char header_name[1024];
-char model_name[1024];
-char scene_name[1024];
-char model_name_uppercase[1024];
-char scene_name_uppercase[1024];
+char outputdir_name[MAX_FILEPATH];
+char output_name[MAX_FILEPATH];
+char header_name[MAX_FILEPATH];
+char model_name[MAX_FILEPATH];
+char scene_name[MAX_FILEPATH];
+char model_name_uppercase[MAX_FILEPATH];
+char scene_name_uppercase[MAX_FILEPATH];
 
 FILE *headerfile = NULL;
 
 double modelorigin[3], modelscale;
+
+// this makes it keep all bones, not removing unused ones (as they might be used for attachments)
+int keepallbones = 1;
 
 void stringtouppercase(char *in, char *out)
 {
@@ -132,7 +145,7 @@ void *readfile(char *filename, int *filesize)
 {
 	FILE *file;
 	void *mem;
-	unsigned long size;
+	size_t size;
 	if (!filename[0])
 	{
 		printf("readfile: tried to open empty filename\n");
