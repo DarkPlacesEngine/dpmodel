@@ -615,7 +615,7 @@ int initframes(void)
 int parsetriangles(void)
 {
 	unsigned char line[1024];
-	int current = 0, i;
+	int current = 0, i, found = 0;
 	double org[3], normal[3];
 	double d;
 	int vbonenum;
@@ -635,11 +635,15 @@ int parsetriangles(void)
 			break;
 		if (current == 0)
 		{
-			for (i = 0;i < numshaders;i++)
-				if (!strcmp(shaders[i], line))
+			found = 0;
+			for (i = 0;i < numshaders;i++) {
+				if (!strcasecmp(shaders[i], line)) {
+					found = 1;
 					break;
+				}
+			}
 			triangles[numtriangles].shadernum = i;
-			if (i == numshaders)
+			if (!found)
 			{
 				cleancopyname(shaders[i], line, MAX_NAME);
 				numshaders++;
