@@ -538,7 +538,7 @@ int parseskeleton(void)
 				printf("error: no previous frame to duplicate\n");
 				return 0;
 			}
-			sprintf(temp, "%s%i", scene_name, frame - baseframe);
+			sprintf(temp, "%s_%i", scene_name, frame - baseframe);
 			if (strlen(temp) > 31)
 			{
 				printf("error: frame name \"%s\" is longer than 31 characters\n", temp);
@@ -670,6 +670,17 @@ int parsetriangles(void)
 			// untransform the origin and normal
 			inversetransform(org, bonematrix[vbonenum], vorigin);
 			inverserotate(normal, bonematrix[vbonenum], vnormal);
+			d = 1 / sqrt(vnormal[0] * vnormal[0] + vnormal[1] * vnormal[1] + vnormal[2] * vnormal[2]);
+			vnormal[0] *= d;
+			vnormal[1] *= d;
+			vnormal[2] *= d;
+			// round off minor errors in the normal
+			if (fabs(vnormal[0]) < 0.001)
+				vnormal[0] = 0;
+			if (fabs(vnormal[1]) < 0.001)
+				vnormal[1] = 0;
+			if (fabs(vnormal[2]) < 0.001)
+				vnormal[2] = 0;
 			d = 1 / sqrt(vnormal[0] * vnormal[0] + vnormal[1] * vnormal[1] + vnormal[2] * vnormal[2]);
 			vnormal[0] *= d;
 			vnormal[1] *= d;
@@ -1422,7 +1433,7 @@ int convertmodel(void)
 {
 	int i, j, k, l, nverts, ntris;
 	float mins[3], maxs[3], yawradius, allradius;
-	int pos_filesize, pos_lumps, pos_frames, pos_bones, pos_meshs, pos_meshlumps, pos_verts, pos_texcoords, pos_index, pos_groupids;
+	int pos_filesize, pos_lumps, pos_frames, pos_bones, pos_meshs, pos_verts, pos_texcoords, pos_index, pos_groupids, pos_framebones;
 	int filesize, restoreposition;
 
 	//sentinelcheckframes(__FILE__, __LINE__);
@@ -1483,41 +1494,31 @@ int convertmodel(void)
 	pos_bones = putgetposition();
 	for (i = 0;i < numbones;i++)
 	{
-		putstring(bones[i].name, 32);
+		putstring(bones[i].name, MAX_NAME);
 		putlong(bones[i].parent);
 		putlong(bones[i].flags);
 	}
 
 	// store the meshs
 	pos_meshs = putgetposition();
+	// skip over the mesh structs, they will be filled in later
+	putsetposition(pos_meshs + numshaders * (MAX_NAME + 24));
+
+	// store the frames
+	pos_frames = putgetposition();
+	// skip over the frame structs, they will be filled in later
+	putsetposition(pos_frames + numframes * (MAX_NAME + 36));
+
+	// store the data referenced by meshs
 	for (i = 0;i < numshaders;i++)
 	{
-		putstring(shaders[i], 32);
+		pos_verts = putgetposition();
 		nverts = 0;
 		for (j = 0;j < numverts;j++)
 		{
 			if (vertices[j].shadernum == i)
-				vertremap[j] = nverts++;
-			else
-				vertremap[j] = -1;
-		}
-		ntris = 0;
-		for (j = 0;j < numtriangles;j++)
-			if (triangles[j].shadernum == i)
-				ntris++;
-		putlong(nverts);
-		putlong(ntris);
-		pos_meshlumps = putgetposition();
-		putlong(0);
-		putlong(0);
-		putlong(0);
-		putlong(0);
-
-		pos_verts = putgetposition();
-		for (j = 0;j < numverts;j++)
-		{
-			if (vertices[j].shadernum == i)
 			{
+				vertremap[j] = nverts++;
 				putlong(1); // how many bones for this vertex (always 1 for smd)
 				// this would be a loop if smd had more than one bone per vertex
 				putfloat(vertices[j].origin[0]);
@@ -1529,17 +1530,21 @@ int convertmodel(void)
 				putfloat(vertices[j].normal[2]);
 				putlong(vertices[j].bonenum); // number of the bone
 			}
+			else
+				vertremap[j] = -1;
 		}
 		pos_texcoords = putgetposition();
 		for (j = 0;j < numverts;j++)
 		{
 			if (vertices[j].shadernum == i)
 			{
+				// OpenGL wants bottom to top texcoords
 				putfloat(vertices[j].texcoord[0]);
-				putfloat(vertices[j].texcoord[1]);
+				putfloat(1.0f - vertices[j].texcoord[1]);
 			}
 		}
 		pos_index = putgetposition();
+		ntris = 0;
 		for (j = 0;j < numtriangles;j++)
 		{
 			if (triangles[j].shadernum == i)
@@ -1547,6 +1552,7 @@ int convertmodel(void)
 				putlong(vertremap[triangles[j].v[0]]);
 				putlong(vertremap[triangles[j].v[1]]);
 				putlong(vertremap[triangles[j].v[2]]);
+				ntris++;
 			}
 		}
 		pos_groupids = putgetposition();
@@ -1554,8 +1560,12 @@ int convertmodel(void)
 			if (triangles[j].shadernum == i)
 				putlong(0);
 
+		// now we actually write the mesh header
 		restoreposition = putgetposition();
-		putsetposition(pos_meshlumps);
+		putsetposition(pos_meshs + i * (MAX_NAME + 24));
+		putstring(shaders[i], MAX_NAME);
+		putlong(nverts);
+		putlong(ntris);
 		putlong(pos_verts);
 		putlong(pos_texcoords);
 		putlong(pos_index);
@@ -1563,10 +1573,18 @@ int convertmodel(void)
 		putsetposition(restoreposition);
 	}
 
-	// store the frames
-	pos_frames = putgetposition();
+	// store the data referenced by frames
 	for (i = 0;i < numframes;i++)
 	{
+		pos_framebones = putgetposition();
+		for (j = 0;j < numbones;j++)
+			for (k = 0;k < 3;k++)
+				for (l = 0;l < 4;l++)
+					putfloat(frames[i].bones[j].m[k][l]);
+
+		// now we actually write the frame header
+		restoreposition = putgetposition();
+		putsetposition(pos_frames + i * (MAX_NAME + 36));
 		putstring(frames[i].name, MAX_NAME);
 		putfloat(frames[i].mins[0]);
 		putfloat(frames[i].mins[1]);
@@ -1576,10 +1594,8 @@ int convertmodel(void)
 		putfloat(frames[i].maxs[2]);
 		putfloat(frames[i].yawradius);
 		putfloat(frames[i].allradius);
-		for (j = 0;j < numbones;j++)
-			for (k = 0;k < 3;k++)
-				for (l = 0;l < 4;l++)
-					putfloat(frames[i].bones[j].m[k][l]);
+		putlong(pos_framebones);
+		putsetposition(restoreposition);
 	}
 
 	filesize = putgetposition();
@@ -1597,11 +1613,15 @@ int convertmodel(void)
 	printf("renderlist:\n");
 	for (i = 0;i < numshaders;i++)
 	{
+		nverts = 0;
+		for (j = 0;j < numverts;j++)
+			if (vertices[j].shadernum == i)
+				nverts++;
 		ntris = 0;
 		for (j = 0;j < numtriangles;j++)
 			if (triangles[j].shadernum == i)
 				ntris++;
-		printf("%5i triangles       : %s\n", ntris, shaders[i]);
+		printf("%5i tris%6i verts : %s\n", ntris, nverts, shaders[i]);
 	}
 	printf("file size: %5ik\n", (filesize + 1023) >> 10);
 	writefile(output_name, outputbuffer, filesize);
