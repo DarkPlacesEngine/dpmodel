@@ -515,9 +515,9 @@ int parseskeleton(void)
 			// root bones need to be offset
 			if (bones[num].parent < 0)
 			{
-				x -= modelorigin[0];
-				y -= modelorigin[1];
-				z -= modelorigin[2];
+				x = (x - modelorigin[0]) * modelscale;
+				y = (y - modelorigin[1]) * modelscale;
+				z = (z - modelorigin[2]) * modelscale;
 			}
 			// LordHavoc: compute matrix
 			frames[frame].bones[num] = computebonematrix(x, y, z, a, b, c);
