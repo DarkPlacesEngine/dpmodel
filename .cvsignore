@@ -1,0 +1,8 @@
+*.d
+*.o
+dpmodel
+gmon.out
+*.ncb
+*.opt
+*.plg
+*.exe
