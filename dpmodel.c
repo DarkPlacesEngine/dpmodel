@@ -175,6 +175,7 @@ void *readfile(char *filename, int *filesize)
 	fclose(file);
 	if (filesize) // can be passed NULL...
 		*filesize = size;
+	printf( "READ: %s of size %i\n", filename, size );
 	return mem;
 }
 
@@ -650,7 +651,11 @@ int parsetriangles(void)
 		{
 			found = 0;
 			for (i = 0;i < numshaders;i++) {
+#ifdef WIN32
+				if (!stricmp(shaders[i], line)) {
+#else
 				if (!strcasecmp(shaders[i], line)) {
+#endif
 					found = 1;
 					break;
 				}
@@ -691,6 +696,7 @@ int parsetriangles(void)
 			vnormal[0] *= d;
 			vnormal[1] *= d;
 			vnormal[2] *= d;
+
 			// round off minor errors in the normal
 			if (fabs(vnormal[0]) < 0.001)
 				vnormal[0] = 0;
