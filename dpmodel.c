@@ -175,7 +175,7 @@ void *readfile(char *filename, int *filesize)
 	fclose(file);
 	if (filesize) // can be passed NULL...
 		*filesize = size;
-	printf( "READ: %s of size %i\n", filename, size );
+	printf( "READ: %s of size %i\n", filename, (int)size );
 	return mem;
 }
 
@@ -1305,7 +1305,7 @@ void processscript(void)
 		freeframes();
 		return;
 	}
-	if (!cleanupbones())
+	if (!keepallbones && !cleanupbones())
 	{
 		freeframes();
 		return;
@@ -1436,12 +1436,12 @@ void putinit(void)
 
 int putgetposition(void)
 {
-	return (int) output - (int) outputbuffer;
+	return (int) ((unsigned char *) output - (unsigned char *) outputbuffer);
 }
 
 void putsetposition(int n)
 {
-	output = (unsigned char *) (n + (int) outputbuffer);
+	output = (unsigned char *) outputbuffer + n;
 }
 
 typedef struct lump_s
