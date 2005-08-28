@@ -33,6 +33,16 @@
 // model format related flags
 #define DPMBONEFLAG_ATTACH 1
 
+#if 1
+#define EPSILON_VERTEX 0.1
+#define EPSILON_NORMAL 0.001
+#define EPSILON_TEXCOORD 0.0001
+#else
+#define EPSILON_VERTEX 0
+#define EPSILON_NORMAL 0
+#define EPSILON_TEXCOORD 0
+#endif
+
 char outputdir_name[MAX_FILEPATH];
 char output_name[MAX_FILEPATH];
 char header_name[MAX_FILEPATH];
@@ -198,6 +208,16 @@ void writefile(char *filename, void *buffer, int size)
 	}
 }
 
+double VectorDistance(const double *v1, const double *v2)
+{
+	return sqrt((v2[0]-v1[0])*(v2[0]-v1[0])+(v2[1]-v1[1])*(v2[1]-v1[1])+(v2[2]-v1[2])*(v2[2]-v1[2]));
+}
+
+double VectorDistance2D(const double *v1, const double *v2)
+{
+	return sqrt((v2[0]-v1[0])*(v2[0]-v1[0])+(v2[1]-v1[1])*(v2[1]-v1[1]));
+}
+
 char *scriptbytes, *scriptend;
 int scriptsize;
 
@@ -292,6 +312,9 @@ typedef struct tripoint_s
 	double texcoord[2];
 	double origin[3];
 	double normal[3];
+	// these are used for comparing against other tripoints (which are relative to other bones)
+	double originalorigin[3];
+	double originalnormal[3];
 }
 tripoint;
 
@@ -702,9 +725,9 @@ int parsetriangles(void)
 			for (i = 0;i < numverts;i++)
 				if (vertices[i].shadernum == triangles[numtriangles].shadernum
 				 && vertices[i].bonenum == vbonenum
-				 && vertices[i].origin[0] == vorigin[0] && vertices[i].origin[1] == vorigin[1] && vertices[i].origin[2] == vorigin[2]
-				 && vertices[i].normal[0] == vnormal[0] && vertices[i].normal[1] == vnormal[1] && vertices[i].normal[2] == vnormal[2]
-				 && vertices[i].texcoord[0] == vtexcoord[0] && vertices[i].texcoord[1] == vtexcoord[1])
+				 && VectorDistance(vertices[i].originalorigin, org) <= EPSILON_VERTEX
+				 && VectorDistance(vertices[i].originalnormal, normal) <= EPSILON_NORMAL
+				 && VectorDistance2D(vertices[i].texcoord, vtexcoord) <= EPSILON_TEXCOORD)
 					break;
 			triangles[numtriangles].v[current - 1] = i;
 			if (i >= numverts)
@@ -712,6 +735,8 @@ int parsetriangles(void)
 				numverts++;
 				vertices[i].shadernum = triangles[numtriangles].shadernum;
 				vertices[i].bonenum = vbonenum;
+				vertices[i].originalorigin[0] = org[0];vertices[i].originalorigin[1] = org[1];vertices[i].originalorigin[2] = org[2];
+				vertices[i].originalnormal[0] = normal[0];vertices[i].originalnormal[1] = normal[1];vertices[i].originalnormal[2] = normal[2];
 				vertices[i].origin[0] = vorigin[0];vertices[i].origin[1] = vorigin[1];vertices[i].origin[2] = vorigin[2];
 				vertices[i].normal[0] = vnormal[0];vertices[i].normal[1] = vnormal[1];vertices[i].normal[2] = vnormal[2];
 				vertices[i].texcoord[0] = vtexcoord[0];vertices[i].texcoord[1] = vtexcoord[1];
@@ -959,7 +984,7 @@ void fixrootbones(void)
 {
 	int i, j;
 	float cy, sy;
-	bonepose_t rootpose, temp;
+	bonepose_t rootpose;
 	cy = cos(modelrotate * M_PI / 180.0);
 	sy = sin(modelrotate * M_PI / 180.0);
 	rootpose.m[0][0] = cy * modelscale;
