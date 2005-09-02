@@ -8,6 +8,8 @@
 //
 // Yes, this is perhaps my second worst code ever (next to zmodel).
 
+// Thanks to Jalisk0 for the HalfLife2 .SMD bone weighting support
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -29,6 +31,7 @@
 #define MAX_BONES 256
 #define MAX_SHADERS 256
 #define MAX_FILESIZE (64*1024*1024)
+#define MAX_INFLUENCES 16
 #define MAX_ATTACHMENTS MAX_BONES
 // model format related flags
 #define DPMBONEFLAG_ATTACH 1
@@ -148,6 +151,133 @@ void makepath(char *text)
 			break;
 		}
 		temp--;
+	}
+}
+
+// LordHavoc: taken from DarkPlaces
+typedef enum qboolean_e {false = 0, true = 1} qboolean;
+#define MAX_TOKEN_CHARS 1024
+char com_token[MAX_TOKEN_CHARS];
+int COM_ParseToken(const char **datapointer, int returnnewline)
+{
+	int len;
+	const char *data = *datapointer;
+
+	len = 0;
+	com_token[0] = 0;
+
+	if (!data)
+	{
+		*datapointer = NULL;
+		return false;
+	}
+
+// skip whitespace
+skipwhite:
+	// line endings:
+	// UNIX: \n
+	// Mac: \r
+	// Windows: \r\n
+	for (;*data <= ' ' && ((*data != '\n' && *data != '\r') || !returnnewline);data++)
+	{
+		if (*data == 0)
+		{
+			// end of file
+			*datapointer = NULL;
+			return false;
+		}
+	}
+
+	// handle Windows line ending
+	if (data[0] == '\r' && data[1] == '\n')
+		data++;
+
+	if (data[0] == '/' && data[1] == '/')
+	{
+		// comment
+		while (*data && *data != '\n' && *data != '\r')
+			data++;
+		goto skipwhite;
+	}
+	else if (data[0] == '/' && data[1] == '*')
+	{
+		// comment
+		data++;
+		while (*data && (data[0] != '*' || data[1] != '/'))
+			data++;
+		data += 2;
+		goto skipwhite;
+	}
+	else if (*data == '\"')
+	{
+		// quoted string
+		for (data++;*data != '\"';data++)
+		{
+			if (*data == '\\' && data[1] == '"' )
+				data++;
+			if (!*data || len >= (int)sizeof(com_token) - 1)
+			{
+				com_token[0] = 0;
+				*datapointer = NULL;
+				return false;
+			}
+			com_token[len++] = *data;
+		}
+		com_token[len] = 0;
+		*datapointer = data+1;
+		return true;
+	}
+	else if (*data == '\'')
+	{
+		// quoted string
+		for (data++;*data != '\'';data++)
+		{
+			if (*data == '\\' && data[1] == '\'' )
+				data++;
+			if (!*data || len >= (int)sizeof(com_token) - 1)
+			{
+				com_token[0] = 0;
+				*datapointer = NULL;
+				return false;
+			}
+			com_token[len++] = *data;
+		}
+		com_token[len] = 0;
+		*datapointer = data+1;
+		return true;
+	}
+	else if (*data == '\r')
+	{
+		// translate Mac line ending to UNIX
+		com_token[len++] = '\n';
+		com_token[len] = 0;
+		*datapointer = data;
+		return true;
+	}
+	else if (*data == '\n' || *data == '{' || *data == '}' || *data == ')' || *data == '(' || *data == ']' || *data == '[' || *data == '\'' || *data == ':' || *data == ',' || *data == ';')
+	{
+		// single character
+		com_token[len++] = *data++;
+		com_token[len] = 0;
+		*datapointer = data;
+		return true;
+	}
+	else
+	{
+		// regular word
+		for (;*data > ' ' && *data != '{' && *data != '}' && *data != ')' && *data != '(' && *data != ']' && *data != '[' && *data != '\'' && *data != ':' && *data != ',' && *data != ';' && *data != '\'' && *data != '"';data++)
+		{
+			if (len >= (int)sizeof(com_token) - 1)
+			{
+				com_token[0] = 0;
+				*datapointer = NULL;
+				return false;
+			}
+			com_token[len++] = *data;
+		}
+		com_token[len] = 0;
+		*datapointer = data;
+		return true;
 	}
 }
 
@@ -308,10 +438,14 @@ frame_t;
 typedef struct tripoint_s
 {
 	int shadernum;
-	int bonenum;
 	double texcoord[2];
-	double origin[3];
-	double normal[3];
+
+	int		numinfluences;
+	double	influenceorigin[MAX_INFLUENCES][3];
+	double	influencenormal[MAX_INFLUENCES][3];
+	int		influencebone[MAX_INFLUENCES];
+	float	influenceweight[MAX_INFLUENCES];
+
 	// these are used for comparing against other tripoints (which are relative to other bones)
 	double originalorigin[3];
 	double originalnormal[3];
@@ -444,18 +578,43 @@ int parsenodes(void)
 {
 	int num, parent;
 	unsigned char line[1024], name[1024];
+	const char *string;
+
 	memset(bones, 0, sizeof(bones));
 	numbones = 0;
+
 	while (getline(line))
 	{
 		if (!strcmp(line, "end"))
 			break;
-		// warning: this is just begging for an overflow exploit, but who would bother overflowing a model converter?
-		if (sscanf(line, "%i \"%[^\"]\" %i", &num, name, &parent) != 3)
+
+		//parse this line read by tokens
+		string = line;
+
+		//get bone number
+		if (!COM_ParseToken(&string, true) || com_token[0] <= ' ')
 		{
-			printf("error in nodes data");
+			printf("error in nodes, expecting bone number in line:%s\n", line);
 			return 0;
 		}
+		num = atoi( com_token );
+
+		//get bone name
+		if (!COM_ParseToken(&string, true) || com_token[0] < ' ')
+		{
+			printf("error in nodes, expecting bone name in line:%s\n", line);
+			return 0;
+		}
+		cleancopyname(name, com_token, MAX_NAME);//printf( "bone name: %s\n", name );
+
+		//get parent number
+		if (!COM_ParseToken(&string, true) || com_token[0] <= ' ')
+		{
+			printf("error in nodes, expecting parent number in line:%s\n", line);
+			return 0;
+		}
+		parent = atoi( com_token );
+
 		if (num < 0 || num >= MAX_BONES)
 		{
 			printf("invalid bone number %i\n", num);
@@ -476,7 +635,6 @@ int parsenodes(void)
 			printf("bone's parent bone has not been defined\n");
 			return 0;
 		}
-		cleancopyname(name, name, MAX_NAME);
 		memcpy(bones[num].name, name, MAX_NAME);
 		bones[num].defined = 1;
 		bones[num].parent = parent;
@@ -488,24 +646,45 @@ int parsenodes(void)
 
 int parseskeleton(void)
 {
-	unsigned char line[1024], command[256], temp[1024];
+	unsigned char line[1024], temp[1024];
 	int i, frame, num;
 	double x, y, z, a, b, c;
 	int baseframe;
+	const char *string;
+
 	baseframe = numframes;
 	frame = baseframe;
+
 	while (getline(line))
 	{
-		sscanf(line, "%s %i", command, &i);
-		if (!strcmp(command, "end"))
+		if (!strcmp(line, "end"))
 			break;
-		if (!strcmp(command, "time"))
+
+		//parse this line read by tokens
+		string = line;
+
+		//get opening line token
+		if (!COM_ParseToken(&string, true) || com_token[0] <= ' ')
 		{
+			printf("error in parseskeleton, script line:%s\n", line);
+			return 0;
+		}
+
+		if (!strcmp(com_token, "time"))
+		{
+			//get the time value
+			if (!COM_ParseToken(&string, true) || com_token[0] <= ' ')
+			{
+				printf("error in parseskeleton, expecting time value in line:%s\n", line);
+				return 0;
+			}
+			i = atoi( com_token );
 			if (i < 0)
 			{
 				printf("invalid time %i\n", i);
 				return 0;
 			}
+
 			frame = baseframe + i;
 			if (frame >= MAX_FRAMES)
 			{
@@ -524,6 +703,7 @@ int parseskeleton(void)
 				return 0;
 			}
 			cleancopyname(frames[frame].name, temp, MAX_NAME);
+
 			frames[frame].numbones = numbones + numattachments + 1;
 			frames[frame].bones = malloc(frames[frame].numbones * sizeof(bonepose_t));
 			memset(frames[frame].bones, 0, frames[frame].numbones * sizeof(bonepose_t));
@@ -534,11 +714,53 @@ int parseskeleton(void)
 		}
 		else
 		{
-			if (sscanf(line, "%i %lf %lf %lf %lf %lf %lf", &num, &x, &y, &z, &a, &b, &c) != 7)
+			//the token was bone number
+			num = atoi( com_token );
+
+			//get x, y, z tokens
+			if (!COM_ParseToken(&string, true) || com_token[0] <= ' ')
 			{
-				printf("invalid bone pose \"%s\"\n", line);
+				printf("error in parseskeleton, expecting 'x' value in line:%s\n", line);
 				return 0;
 			}
+			x = atof( com_token );
+
+			if (!COM_ParseToken(&string, true) || com_token[0] <= ' ')
+			{
+				printf("error in parseskeleton, expecting 'y' value in line:%s\n", line);
+				return 0;
+			}
+			y = atof( com_token );
+
+			if (!COM_ParseToken(&string, true) || com_token[0] <= ' ')
+			{
+				printf("error in parseskeleton, expecting 'z' value in line:%s\n", line);
+				return 0;
+			}
+			z = atof( com_token );
+
+			//get a, b, c tokens
+			if (!COM_ParseToken(&string, true) || com_token[0] <= ' ')
+			{
+				printf("error in parseskeleton, expecting 'a' value in line:%s\n", line);
+				return 0;
+			}
+			a = atof( com_token );
+
+			if (!COM_ParseToken(&string, true) || com_token[0] <= ' ')
+			{
+				printf("error in parseskeleton, expecting 'b' value in line:%s\n", line);
+				return 0;
+			}
+			b = atof( com_token );
+
+			if (!COM_ParseToken(&string, true) || com_token[0] <= ' ')
+			{
+				printf("error in parseskeleton, expecting 'c' value in line:%s\n", line);
+				return 0;
+			}
+			c = atof( com_token );
+
 			if (num < 0 || num >= numbones)
 			{
 				printf("error: invalid bone number: %i\n", num);
@@ -644,14 +866,20 @@ int initframes(void)
 
 int parsetriangles(void)
 {
-	unsigned char line[1024];
-	int current = 0, i, found = 0;
+	unsigned char line[1024], cleanline[MAX_NAME];
+	int i, j, current = 0, found = 0;
+	const char *string;
 	double org[3], normal[3];
 	double d;
 	int vbonenum;
-	double vorigin[3], vnormal[3], vtexcoord[2];
+	double vtexcoord[2];
+	int		numinfluences;
+	int		temp_numbone[MAX_INFLUENCES];
+	double	temp_influence[MAX_INFLUENCES];
+
 	numtriangles = 0;
 	numshaders = 0;
+
 	for (i = 0;i < numbones;i++)
 	{
 		if (bones[i].parent >= 0)
@@ -663,15 +891,15 @@ int parsetriangles(void)
 	{
 		if (!strcmp(line, "end"))
 			break;
+
 		if (current == 0)
 		{
 			found = 0;
-			for (i = 0;i < numshaders;i++) {
-#ifdef WIN32
-				if (!stricmp(shaders[i], line)) {
-#else
-				if (!strcasecmp(shaders[i], line)) {
-#endif
+			cleancopyname (cleanline, line, MAX_NAME);
+			for (i = 0;i < numshaders;i++)
+			{
+				if (!strcmp(shaders[i], cleanline))
+				{
 					found = 1;
 					break;
 				}
@@ -679,67 +907,220 @@ int parsetriangles(void)
 			triangles[numtriangles].shadernum = i;
 			if (!found)
 			{
-				cleancopyname(shaders[i], line, MAX_NAME);
+				if (i == MAX_SHADERS)
+				{
+					printf("MAX_SHADERS reached\n");
+					return 0;
+				}
+				cleancopyname(shaders[i], cleanline, MAX_NAME);
 				numshaders++;
 			}
 			current++;
 		}
 		else
 		{
-			if (sscanf(line, "%i %lf %lf %lf %lf %lf %lf %lf %lf", &vbonenum, &org[0], &org[1], &org[2], &normal[0], &normal[1], &normal[2], &vtexcoord[0], &vtexcoord[1]) < 9)
-			{
-				printf("invalid vertex \"%s\"\n", line);
-				return 0;
-			}
-			if (vbonenum < 0 || vbonenum >= MAX_BONES)
-			{
-				printf("invalid bone number %i in triangle data\n", vbonenum);
-				return 0;
-			}
-			if (!bones[vbonenum].defined)
-			{
-				printf("bone %i in triangle data is not defined\n", vbonenum);
-				return 0;
-			}
-			// untransform the origin and normal
-			inversetransform(org, bonematrix[vbonenum], vorigin);
-			inverserotate(normal, bonematrix[vbonenum], vnormal);
-			d = 1 / sqrt(vnormal[0] * vnormal[0] + vnormal[1] * vnormal[1] + vnormal[2] * vnormal[2]);
-			vnormal[0] *= d;
-			vnormal[1] *= d;
-			vnormal[2] *= d;
+			//parse this line read by tokens
+			string = line;
+			org[0] = 0;org[1] = 0;org[2] = 0;
+			normal[0] = 0;normal[1] = 0;normal[2] = 0;
+			vtexcoord[0] = 0;vtexcoord[1] = 0;
 
-			// round off minor errors in the normal
-			if (fabs(vnormal[0]) < 0.001)
-				vnormal[0] = 0;
-			if (fabs(vnormal[1]) < 0.001)
-				vnormal[1] = 0;
-			if (fabs(vnormal[2]) < 0.001)
-				vnormal[2] = 0;
-			d = 1 / sqrt(vnormal[0] * vnormal[0] + vnormal[1] * vnormal[1] + vnormal[2] * vnormal[2]);
-			vnormal[0] *= d;
-			vnormal[1] *= d;
-			vnormal[2] *= d;
+			//get bonenum token
+			if (!COM_ParseToken(&string, true) || com_token[0] <= ' ')
+			{
+				printf("error in parsetriangles, expecting 'bonenum', script line:%s\n", line);
+				return 0;
+			}
+			vbonenum = atoi( com_token );
+
+			//get org[0] token
+			if (!COM_ParseToken(&string, true) || com_token[0] <= ' ')
+			{
+				printf("error in parsetriangles, expecting 'org[0]', script line:%s\n", line);
+				return 0;
+			}
+			org[0] = atof( com_token );
+
+			//get org[1] token
+			if (!COM_ParseToken(&string, true) || com_token[0] <= ' ')
+			{
+				printf("error in parsetriangles, expecting 'org[1]', script line:%s\n", line);
+				return 0;
+			}
+			org[1] = atof( com_token );
+
+			//get org[2] token
+			if (!COM_ParseToken(&string, true) || com_token[0] <= ' ')
+			{
+				printf("error in parsetriangles, expecting 'org[2]', script line:%s\n", line);
+				return 0;
+			}
+			org[2] = atof( com_token );
+
+			//get normal[0] token
+			if (!COM_ParseToken(&string, true) || com_token[0] <= ' ')
+			{
+				printf("error in parsetriangles, expecting 'normal[0]', script line:%s\n", line);
+				return 0;
+			}
+			normal[0] = atof( com_token );
+
+			//get normal[1] token
+			if (!COM_ParseToken(&string, true) || com_token[0] <= ' ')
+			{
+				printf("error in parsetriangles, expecting 'normal[1]', script line:%s\n", line);
+				return 0;
+			}
+			normal[1] = atof( com_token );
+
+			//get normal[2] token
+			if (!COM_ParseToken(&string, true) || com_token[0] <= ' ')
+			{
+				printf("error in parsetriangles, expecting 'normal[2]', script line:%s\n", line);
+				return 0;
+			}
+			normal[2] = atof( com_token );
+
+			//get vtexcoord[0] token
+			if (!COM_ParseToken(&string, true) || com_token[0] <= ' ')
+			{
+				printf("error in parsetriangles, expecting 'vtexcoord[0]', script line:%s\n", line);
+				return 0;
+			}
+			vtexcoord[0] = atof( com_token );
+
+			//get vtexcoord[1] token
+			if (!COM_ParseToken(&string, true) || com_token[0] <= ' ')
+			{
+				printf("error in parsetriangles, expecting 'vtexcoord[1]', script line:%s\n", line);
+				return 0;
+			}
+			vtexcoord[1] = atof( com_token );
+
+			// are there more words (HalfLife2) or not (HalfLife1)?
+			if (!COM_ParseToken(&string, true) || com_token[0] <= ' ')
+			{
+				// one influence (HalfLife1)
+				numinfluences = 1;
+				temp_numbone[0] = vbonenum;
+				temp_influence[0] = 1.0f;
+			}
+			else
+			{
+				// multiple influences found (HalfLife2)
+				int c;
+
+				numinfluences = atoi( com_token );
+				if( !numinfluences )
+				{
+					printf("error in parsetriangles, expecting 'numinfluences', script line:%s\n", line);
+					return 0;
+				}
+
+				//read by pairs, bone number and influence
+				for( c = 0; c < numinfluences; c++ )
+				{
+					//get bone number
+					if (!COM_ParseToken(&string, true) || com_token[0] <= ' ')
+					{
+						printf("invalid vertex influence \"%s\"\n", line);
+						return 0;
+					}
+					temp_numbone[c] = atoi(com_token);
+					if(temp_numbone[c] < 0 || temp_numbone[c] >= numbones )
+					{
+						printf("invalid vertex influence (invalid bone number) \"%s\"\n", line);
+						return 0;
+					}
+					//get influence weight
+					if (!COM_ParseToken(&string, true) || com_token[0] <= ' ')
+					{
+						printf("invalid vertex influence \"%s\"\n", line);
+						return 0;
+					}
+					temp_influence[c] = atof(com_token);
+					if( temp_influence[c] < 0.0f )
+					{
+						printf("invalid vertex influence weight, ignored \"%s\"\n", line);
+						return 0;
+					}
+					else if( temp_influence[c] > 1.0f )
+						temp_influence[c] = 1.0f;
+				}
+			}
+
+			// validate linked bones
+			if( numinfluences < 1)
+			{
+				printf("vertex with no influence found in triangle data\n");
+				return 0;
+			}
+			for( i=0; i<numinfluences; i++ )
+			{
+				if (temp_numbone[i] < 0 || temp_numbone[i] >= MAX_BONES )
+				{
+					printf("invalid bone number %i in triangle data\n", temp_numbone[i]);
+					return 0;
+				}
+				if (!bones[temp_numbone[i]].defined)
+				{
+					printf("bone %i in triangle data is not defined\n", temp_numbone[i]);
+					return 0;
+				}
+			}
 
 			// add vertex to list if unique
 			for (i = 0;i < numverts;i++)
-				if (vertices[i].shadernum == triangles[numtriangles].shadernum
-				 && vertices[i].bonenum == vbonenum
-				 && VectorDistance(vertices[i].originalorigin, org) <= EPSILON_VERTEX
-				 && VectorDistance(vertices[i].originalnormal, normal) <= EPSILON_NORMAL
-				 && VectorDistance2D(vertices[i].texcoord, vtexcoord) <= EPSILON_TEXCOORD)
+			{
+				if (vertices[i].shadernum != triangles[numtriangles].shadernum
+					|| vertices[i].numinfluences != numinfluences
+					|| VectorDistance(vertices[i].originalorigin, org) > EPSILON_VERTEX
+					|| VectorDistance(vertices[i].originalnormal, normal) > EPSILON_NORMAL
+					|| VectorDistance2D(vertices[i].texcoord, vtexcoord) > EPSILON_TEXCOORD)
+					continue;
+				for (j = 0;j < numinfluences;j++)
+					if (vertices[i].influencebone[j] != temp_numbone[j] || vertices[i].influenceweight[j] != temp_influence[j])
+						break;
+				if (j == numinfluences)
 					break;
+			}
 			triangles[numtriangles].v[current - 1] = i;
+
 			if (i >= numverts)
 			{
 				numverts++;
 				vertices[i].shadernum = triangles[numtriangles].shadernum;
-				vertices[i].bonenum = vbonenum;
+				vertices[i].texcoord[0] = vtexcoord[0];
+				vertices[i].texcoord[1] = vtexcoord[1];
 				vertices[i].originalorigin[0] = org[0];vertices[i].originalorigin[1] = org[1];vertices[i].originalorigin[2] = org[2];
 				vertices[i].originalnormal[0] = normal[0];vertices[i].originalnormal[1] = normal[1];vertices[i].originalnormal[2] = normal[2];
-				vertices[i].origin[0] = vorigin[0];vertices[i].origin[1] = vorigin[1];vertices[i].origin[2] = vorigin[2];
-				vertices[i].normal[0] = vnormal[0];vertices[i].normal[1] = vnormal[1];vertices[i].normal[2] = vnormal[2];
-				vertices[i].texcoord[0] = vtexcoord[0];vertices[i].texcoord[1] = vtexcoord[1];
+				vertices[i].numinfluences = numinfluences;
+				for( j=0; j < vertices[i].numinfluences; j++ )
+				{
+					// untransform the origin and normal
+					inversetransform(org, bonematrix[temp_numbone[j]], vertices[i].influenceorigin[j]);
+					inverserotate(normal, bonematrix[temp_numbone[j]], vertices[i].influencenormal[j]);
+
+					d = 1 / sqrt(vertices[i].influencenormal[j][0] * vertices[i].influencenormal[j][0] + vertices[i].influencenormal[j][1] * vertices[i].influencenormal[j][1] + vertices[i].influencenormal[j][2] * vertices[i].influencenormal[j][2]);
+					vertices[i].influencenormal[j][0] *= d;
+					vertices[i].influencenormal[j][1] *= d;
+					vertices[i].influencenormal[j][2] *= d;
+
+					// round off minor errors in the normal
+					if (fabs(vertices[i].influencenormal[j][0]) < 0.001)
+						vertices[i].influencenormal[j][0] = 0;
+					if (fabs(vertices[i].influencenormal[j][1]) < 0.001)
+						vertices[i].influencenormal[j][1] = 0;
+					if (fabs(vertices[i].influencenormal[j][2]) < 0.001)
+						vertices[i].influencenormal[j][2] = 0;
+
+					d = 1 / sqrt(vertices[i].influencenormal[j][0] * vertices[i].influencenormal[j][0] + vertices[i].influencenormal[j][1] * vertices[i].influencenormal[j][1] + vertices[i].influencenormal[j][2] * vertices[i].influencenormal[j][2]);
+					vertices[i].influencenormal[j][0] *= d;
+					vertices[i].influencenormal[j][1] *= d;
+					vertices[i].influencenormal[j][2] *= d;
+					vertices[i].influencebone[j] = temp_numbone[j];
+					vertices[i].influenceweight[j] = temp_influence[j];
+				}
 			}
 
 			current++;
@@ -750,6 +1131,8 @@ int parsetriangles(void)
 			}
 		}
 	}
+
+	printf("parsetriangles: done\n");
 	return 1;
 }
 
@@ -838,7 +1221,8 @@ int cleanupbones(void)
 		}
 	}
 	for (i = 0;i < numverts;i++)
-		bones[vertices[i].bonenum].users++;
+		for (j = 0;j < vertices[i].numinfluences;j++)
+			bones[vertices[i].influencebone[j]].users++;
 	for (i = 0;i < numbones;i++)
 		if (bones[i].defined && bones[i].users && bones[i].parent >= 0)
 			bones[bones[i].parent].users++;
@@ -889,7 +1273,9 @@ int cleanupbones(void)
 
 	// remap vertex references
 	for (i = 0;i < numverts;i++)
-		vertices[i].bonenum = remap[vertices[i].bonenum];
+		if (vertices[i].numinfluences)
+			for(j = 0;j < vertices[i].numinfluences;j++)
+				vertices[i].influencebone[j] = remap[vertices[i].influencebone[j]];
 
 	//sentinelcheckframes(__FILE__, __LINE__);
 	return 1;
@@ -897,7 +1283,7 @@ int cleanupbones(void)
 
 int cleanupframes(void)
 {
-	int i, j/*, best*/;
+	int i, j/*, best*/, k;
 	double org[3], dist, mins[3], maxs[3], yawradius, allradius;
 	for (i = 0;i < numframes;i++)
 	{
@@ -919,21 +1305,29 @@ int cleanupframes(void)
 		//best = 0;
 		for (j = 0;j < numverts;j++)
 		{
-			transform(vertices[j].origin, bonematrix[vertices[j].bonenum], org);
-			if (mins[0] > org[0]) mins[0] = org[0];
-			if (mins[1] > org[1]) mins[1] = org[1];
-			if (mins[2] > org[2]) mins[2] = org[2];
-			if (maxs[0] < org[0]) maxs[0] = org[0];
-			if (maxs[1] < org[1]) maxs[1] = org[1];
-			if (maxs[2] < org[2]) maxs[2] = org[2];
-			dist = org[0]*org[0]+org[1]*org[1];
-			if (yawradius < dist)
-				yawradius = dist;
-			dist += org[2]*org[2];
-			if (allradius < dist)
+			for (k = 0;k < vertices[i].numinfluences;k++)
 			{
-		//		best = j;
-				allradius = dist;
+				transform(vertices[j].influenceorigin[k], bonematrix[vertices[j].influencebone[k]], org);
+
+				if (mins[0] > org[0]) mins[0] = org[0];
+				if (mins[1] > org[1]) mins[1] = org[1];
+				if (mins[2] > org[2]) mins[2] = org[2];
+				if (maxs[0] < org[0]) maxs[0] = org[0];
+				if (maxs[1] < org[1]) maxs[1] = org[1];
+				if (maxs[2] < org[2]) maxs[2] = org[2];
+
+				dist = org[0]*org[0]+org[1]*org[1];
+
+				if (yawradius < dist)
+					yawradius = dist;
+
+				dist += org[2]*org[2];
+
+				if (allradius < dist)
+				{
+					//		best = j;
+					allradius = dist;
+				}
 			}
 		}
 		/*
@@ -1599,16 +1993,18 @@ int convertmodel(void)
 			if (vertices[j].shadernum == i)
 			{
 				vertremap[j] = nverts++;
-				putlong(1); // how many bones for this vertex (always 1 for smd)
-				// this would be a loop if smd had more than one bone per vertex
-				putfloat(vertices[j].origin[0]);
-				putfloat(vertices[j].origin[1]);
-				putfloat(vertices[j].origin[2]);
-				putfloat(1); // influence of the bone on the vertex
-				putfloat(vertices[j].normal[0]);
-				putfloat(vertices[j].normal[1]);
-				putfloat(vertices[j].normal[2]);
-				putlong(vertices[j].bonenum); // number of the bone
+				putlong(vertices[j].numinfluences); // how many bones for this vertex (always 1 for smd)
+				for (k = 0;k < vertices[j].numinfluences;k++)
+				{
+					putfloat(vertices[j].influenceorigin[k][0] * vertices[j].influenceweight[k]);
+					putfloat(vertices[j].influenceorigin[k][1] * vertices[j].influenceweight[k]);
+					putfloat(vertices[j].influenceorigin[k][2] * vertices[j].influenceweight[k]);
+					putfloat(vertices[j].influenceweight[k]); // influence of the bone on the vertex
+					putfloat(vertices[j].influencenormal[k][0] * vertices[j].influenceweight[k]);
+					putfloat(vertices[j].influencenormal[k][1] * vertices[j].influenceweight[k]);
+					putfloat(vertices[j].influencenormal[k][2] * vertices[j].influenceweight[k]);
+					putlong(vertices[j].influencebone[k]); // number of the bone
+				}
 			}
 			else
 				vertremap[j] = -1;
