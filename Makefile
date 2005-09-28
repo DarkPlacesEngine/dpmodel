@@ -1,34 +1,45 @@
-OBJECTS= dpmodel.o
+##### Win32 variables #####
 
-#use this line for profiling
-#PROFILEOPTION=-pg -g
-#use this line for no profiling
-PROFILEOPTION=
+WIN32_EXE=dpmodel.exe
+WIN32_LDFLAGS=-lm
 
-#note:
-#the -Werror can be removed to compile even if there are warnings,
-#this is used to ensure that all released versions are free of warnings.
+##### Unix variables #####
 
-#normal compile
-OPTIMIZATIONS= -O6 -ffast-math -fexpensive-optimizations
-CFLAGS= -MD -Wall -Werror $(OPTIMIZATIONS) $(PROFILEOPTION)
-#debug compile
-#OPTIMIZATIONS= -O -g
-#CFLAGS= -MD -Wall -Werror -ggdb $(OPTIMIZATIONS) $(PROFILEOPTION)
+UNIX_EXE=dpmodel
+UNIX_LDFLAGS=-lm
 
-LDFLAGS= -lm $(PROFILEOPTION)
+##### Common variables #####
 
-all: dpmodel
+CC=gcc
+CFLAGS=-MD -Wall -O2
+
+ifdef windir
+CMD_RM=del
+else
+CMD_RM=rm -f
+endif
+
+##### Commands #####
+
+.PHONY: all mingw clean
+
+all:
+ifdef windir
+	$(MAKE) EXE=$(WIN32_EXE) LDFLAGS="$(WIN32_LDFLAGS)" $(WIN32_EXE)
+else
+	$(MAKE) EXE=$(UNIX_EXE) LDFLAGS="$(UNIX_LDFLAGS)" $(UNIX_EXE)
+endif
+
+mingw:
+	@$(MAKE) EXE=$(WIN32_EXE) LDFLAGS="$(WIN32_LDFLAGS)" $(WIN32_EXE)
 
 .c.o:
-	gcc $(CFLAGS) -c $*.c
+	$(CC) $(CFLAGS) -c $*.c
 
-dpmodel: $(OBJECTS)
-	gcc -o $@ $^ $(LDFLAGS)
+$(EXE): dpmodel.o
+	$(CC) -o $@ $^ $(LDFLAGS)
 
 clean:
-	-rm -f dpmodel *.o *.d
-
-.PHONY: clean
-
--include *.d
+	-$(CMD_RM) $(WIN32_EXE)
+	-$(CMD_RM) $(UNIX_EXE)
+	-$(CMD_RM) *.o
