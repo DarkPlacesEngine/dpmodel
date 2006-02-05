@@ -391,23 +391,7 @@ int parsefilenames(void)
 }
 */
 
-unsigned char *tokenpos;
-
-int getline(unsigned char *line)
-{
-	unsigned char *out = line;
-	while (*tokenpos == '\r' || *tokenpos == '\n')
-		tokenpos++;
-	if (*tokenpos == 0)
-	{
-		*out++ = 0;
-		return 0;
-	}
-	while (*tokenpos && *tokenpos != '\r' && *tokenpos != '\n')
-		*out++ = *tokenpos++;
-	*out++ = 0;
-	return out - line;
-}
+const char *tokenpos;
 
 typedef struct bonepose_s
 {
@@ -577,22 +561,22 @@ void inverserotate(double in[3], bonepose_t matrix, double out[3])
 int parsenodes(void)
 {
 	int num, parent;
-	unsigned char line[1024], name[1024];
-	const char *string;
+	char line[1024], name[1024];
 
 	memset(bones, 0, sizeof(bones));
 	numbones = 0;
 
-	while (getline(line))
+	while (COM_ParseToken(&tokenpos, true))
 	{
-		if (!strcmp(line, "end"))
+		// if this is the end keyword, we're done with this section of the file
+		if (!strcmp(com_token, "end"))
 			break;
 
 		//parse this line read by tokens
-		string = line;
 
 		//get bone number
-		if (!COM_ParseToken(&string, true) || com_token[0] <= ' ')
+		//we already read the first token, so use it
+		if (com_token[0] <= ' ')
 		{
 			printf("error in nodes, expecting bone number in line:%s\n", line);
 			return 0;
@@ -600,7 +584,7 @@ int parsenodes(void)
 		num = atoi( com_token );
 
 		//get bone name
-		if (!COM_ParseToken(&string, true) || com_token[0] < ' ')
+		if (!COM_ParseToken(&tokenpos, true) || com_token[0] < ' ')
 		{
 			printf("error in nodes, expecting bone name in line:%s\n", line);
 			return 0;
@@ -608,7 +592,7 @@ int parsenodes(void)
 		cleancopyname(name, com_token, MAX_NAME);//printf( "bone name: %s\n", name );
 
 		//get parent number
-		if (!COM_ParseToken(&string, true) || com_token[0] <= ' ')
+		if (!COM_ParseToken(&tokenpos, true) || com_token[0] <= ' ')
 		{
 			printf("error in nodes, expecting parent number in line:%s\n", line);
 			return 0;
@@ -640,31 +624,35 @@ int parsenodes(void)
 		bones[num].parent = parent;
 		if (num >= numbones)
 			numbones = num + 1;
+		// skip any trailing parameters (might be a later version of smd)
+		while (COM_ParseToken(&tokenpos, true) && com_token[0] != '\n');
 	}
+	// skip any trailing parameters (might be a later version of smd)
+	while (COM_ParseToken(&tokenpos, true) && com_token[0] != '\n');
 	return 1;
 }
 
 int parseskeleton(void)
 {
-	unsigned char line[1024], temp[1024];
+	char line[1024], temp[1024];
 	int i, frame, num;
 	double x, y, z, a, b, c;
 	int baseframe;
-	const char *string;
 
 	baseframe = numframes;
 	frame = baseframe;
 
-	while (getline(line))
+	while (COM_ParseToken(&tokenpos, true))
 	{
-		if (!strcmp(line, "end"))
+		// if this is the end keyword, we're done with this section of the file
+		if (!strcmp(com_token, "end"))
 			break;
 
 		//parse this line read by tokens
-		string = line;
 
 		//get opening line token
-		if (!COM_ParseToken(&string, true) || com_token[0] <= ' ')
+		//we already read the first token, so use it
+		if (com_token[0] <= ' ')
 		{
 			printf("error in parseskeleton, script line:%s\n", line);
 			return 0;
@@ -673,7 +661,7 @@ int parseskeleton(void)
 		if (!strcmp(com_token, "time"))
 		{
 			//get the time value
-			if (!COM_ParseToken(&string, true) || com_token[0] <= ' ')
+			if (!COM_ParseToken(&tokenpos, true) || com_token[0] <= ' ')
 			{
 				printf("error in parseskeleton, expecting time value in line:%s\n", line);
 				return 0;
@@ -718,21 +706,21 @@ int parseskeleton(void)
 			num = atoi( com_token );
 
 			//get x, y, z tokens
-			if (!COM_ParseToken(&string, true) || com_token[0] <= ' ')
+			if (!COM_ParseToken(&tokenpos, true) || com_token[0] <= ' ')
 			{
 				printf("error in parseskeleton, expecting 'x' value in line:%s\n", line);
 				return 0;
 			}
 			x = atof( com_token );
 
-			if (!COM_ParseToken(&string, true) || com_token[0] <= ' ')
+			if (!COM_ParseToken(&tokenpos, true) || com_token[0] <= ' ')
 			{
 				printf("error in parseskeleton, expecting 'y' value in line:%s\n", line);
 				return 0;
 			}
 			y = atof( com_token );
 
-			if (!COM_ParseToken(&string, true) || com_token[0] <= ' ')
+			if (!COM_ParseToken(&tokenpos, true) || com_token[0] <= ' ')
 			{
 				printf("error in parseskeleton, expecting 'z' value in line:%s\n", line);
 				return 0;
@@ -740,21 +728,21 @@ int parseskeleton(void)
 			z = atof( com_token );
 
 			//get a, b, c tokens
-			if (!COM_ParseToken(&string, true) || com_token[0] <= ' ')
+			if (!COM_ParseToken(&tokenpos, true) || com_token[0] <= ' ')
 			{
 				printf("error in parseskeleton, expecting 'a' value in line:%s\n", line);
 				return 0;
 			}
 			a = atof( com_token );
 
-			if (!COM_ParseToken(&string, true) || com_token[0] <= ' ')
+			if (!COM_ParseToken(&tokenpos, true) || com_token[0] <= ' ')
 			{
 				printf("error in parseskeleton, expecting 'b' value in line:%s\n", line);
 				return 0;
 			}
 			b = atof( com_token );
 
-			if (!COM_ParseToken(&string, true) || com_token[0] <= ' ')
+			if (!COM_ParseToken(&tokenpos, true) || com_token[0] <= ' ')
 			{
 				printf("error in parseskeleton, expecting 'c' value in line:%s\n", line);
 				return 0;
@@ -774,7 +762,11 @@ int parseskeleton(void)
 			// LordHavoc: compute matrix
 			frames[frame].bones[num] = computebonematrix(x, y, z, a, b, c);
 		}
+		// skip any trailing parameters (might be a later version of smd)
+		while (COM_ParseToken(&tokenpos, true) && com_token[0] != '\n');
 	}
+	// skip any trailing parameters (might be a later version of smd)
+	while (COM_ParseToken(&tokenpos, true) && com_token[0] != '\n');
 
 	for (frame = 0;frame < numframes;frame++)
 	{
@@ -866,9 +858,8 @@ int initframes(void)
 
 int parsetriangles(void)
 {
-	unsigned char line[1024], cleanline[MAX_NAME];
-	int i, j, current = 0, found = 0;
-	const char *string;
+	char line[1024], cleanline[MAX_NAME];
+	int i, j, corner, found = 0;
 	double org[3], normal[3];
 	double d;
 	int vbonenum;
@@ -887,46 +878,51 @@ int parsetriangles(void)
 		else
 			bonematrix[i] = frames[0].bones[i];
 	}
-	while (getline(line))
+	while (COM_ParseToken(&tokenpos, true))
 	{
-		if (!strcmp(line, "end"))
+		// if this is the end keyword, we're done with this section of the file
+		if (!strcmp(com_token, "end"))
 			break;
 
-		if (current == 0)
-		{
-			found = 0;
-			cleancopyname (cleanline, line, MAX_NAME);
-			for (i = 0;i < numshaders;i++)
-			{
-				if (!strcmp(shaders[i], cleanline))
-				{
-					found = 1;
-					break;
-				}
-			}
-			triangles[numtriangles].shadernum = i;
-			if (!found)
-			{
-				if (i == MAX_SHADERS)
-				{
-					printf("MAX_SHADERS reached\n");
-					return 0;
-				}
-				cleancopyname(shaders[i], cleanline, MAX_NAME);
-				numshaders++;
-			}
-			current++;
-		}
+		// get the shader name (already parsed)
+		if (com_token[0] != '\n')
+			cleancopyname (cleanline, com_token, MAX_NAME);
 		else
+			cleancopyname (cleanline, "notexture", MAX_NAME);
+		found = 0;
+		for (i = 0;i < numshaders;i++)
+		{
+			if (!strcmp(shaders[i], cleanline))
+			{
+				found = 1;
+				break;
+			}
+		}
+		triangles[numtriangles].shadernum = i;
+		if (!found)
+		{
+			if (i == MAX_SHADERS)
+			{
+				printf("MAX_SHADERS reached\n");
+				return 0;
+			}
+			cleancopyname(shaders[i], cleanline, MAX_NAME);
+			numshaders++;
+		}
+		if (com_token[0] != '\n')
+		{
+			// skip any trailing parameters (might be a later version of smd)
+			while (COM_ParseToken(&tokenpos, true) && com_token[0] != '\n');
+		}
+		for (corner = 0;corner < 3;corner++)
 		{
 			//parse this line read by tokens
-			string = line;
 			org[0] = 0;org[1] = 0;org[2] = 0;
 			normal[0] = 0;normal[1] = 0;normal[2] = 0;
 			vtexcoord[0] = 0;vtexcoord[1] = 0;
 
 			//get bonenum token
-			if (!COM_ParseToken(&string, true) || com_token[0] <= ' ')
+			if (!COM_ParseToken(&tokenpos, true) || com_token[0] <= ' ')
 			{
 				printf("error in parsetriangles, expecting 'bonenum', script line:%s\n", line);
 				return 0;
@@ -934,7 +930,7 @@ int parsetriangles(void)
 			vbonenum = atoi( com_token );
 
 			//get org[0] token
-			if (!COM_ParseToken(&string, true) || com_token[0] <= ' ')
+			if (!COM_ParseToken(&tokenpos, true) || com_token[0] <= ' ')
 			{
 				printf("error in parsetriangles, expecting 'org[0]', script line:%s\n", line);
 				return 0;
@@ -942,7 +938,7 @@ int parsetriangles(void)
 			org[0] = atof( com_token );
 
 			//get org[1] token
-			if (!COM_ParseToken(&string, true) || com_token[0] <= ' ')
+			if (!COM_ParseToken(&tokenpos, true) || com_token[0] <= ' ')
 			{
 				printf("error in parsetriangles, expecting 'org[1]', script line:%s\n", line);
 				return 0;
@@ -950,7 +946,7 @@ int parsetriangles(void)
 			org[1] = atof( com_token );
 
 			//get org[2] token
-			if (!COM_ParseToken(&string, true) || com_token[0] <= ' ')
+			if (!COM_ParseToken(&tokenpos, true) || com_token[0] <= ' ')
 			{
 				printf("error in parsetriangles, expecting 'org[2]', script line:%s\n", line);
 				return 0;
@@ -958,7 +954,7 @@ int parsetriangles(void)
 			org[2] = atof( com_token );
 
 			//get normal[0] token
-			if (!COM_ParseToken(&string, true) || com_token[0] <= ' ')
+			if (!COM_ParseToken(&tokenpos, true) || com_token[0] <= ' ')
 			{
 				printf("error in parsetriangles, expecting 'normal[0]', script line:%s\n", line);
 				return 0;
@@ -966,7 +962,7 @@ int parsetriangles(void)
 			normal[0] = atof( com_token );
 
 			//get normal[1] token
-			if (!COM_ParseToken(&string, true) || com_token[0] <= ' ')
+			if (!COM_ParseToken(&tokenpos, true) || com_token[0] <= ' ')
 			{
 				printf("error in parsetriangles, expecting 'normal[1]', script line:%s\n", line);
 				return 0;
@@ -974,7 +970,7 @@ int parsetriangles(void)
 			normal[1] = atof( com_token );
 
 			//get normal[2] token
-			if (!COM_ParseToken(&string, true) || com_token[0] <= ' ')
+			if (!COM_ParseToken(&tokenpos, true) || com_token[0] <= ' ')
 			{
 				printf("error in parsetriangles, expecting 'normal[2]', script line:%s\n", line);
 				return 0;
@@ -982,7 +978,7 @@ int parsetriangles(void)
 			normal[2] = atof( com_token );
 
 			//get vtexcoord[0] token
-			if (!COM_ParseToken(&string, true) || com_token[0] <= ' ')
+			if (!COM_ParseToken(&tokenpos, true) || com_token[0] <= ' ')
 			{
 				printf("error in parsetriangles, expecting 'vtexcoord[0]', script line:%s\n", line);
 				return 0;
@@ -990,7 +986,7 @@ int parsetriangles(void)
 			vtexcoord[0] = atof( com_token );
 
 			//get vtexcoord[1] token
-			if (!COM_ParseToken(&string, true) || com_token[0] <= ' ')
+			if (!COM_ParseToken(&tokenpos, true) || com_token[0] <= ' ')
 			{
 				printf("error in parsetriangles, expecting 'vtexcoord[1]', script line:%s\n", line);
 				return 0;
@@ -998,7 +994,7 @@ int parsetriangles(void)
 			vtexcoord[1] = atof( com_token );
 
 			// are there more words (HalfLife2) or not (HalfLife1)?
-			if (!COM_ParseToken(&string, true) || com_token[0] <= ' ')
+			if (!COM_ParseToken(&tokenpos, true) || com_token[0] <= ' ')
 			{
 				// one influence (HalfLife1)
 				numinfluences = 1;
@@ -1021,7 +1017,7 @@ int parsetriangles(void)
 				for( c = 0; c < numinfluences; c++ )
 				{
 					//get bone number
-					if (!COM_ParseToken(&string, true) || com_token[0] <= ' ')
+					if (!COM_ParseToken(&tokenpos, true) || com_token[0] <= ' ')
 					{
 						printf("invalid vertex influence \"%s\"\n", line);
 						return 0;
@@ -1033,7 +1029,7 @@ int parsetriangles(void)
 						return 0;
 					}
 					//get influence weight
-					if (!COM_ParseToken(&string, true) || com_token[0] <= ' ')
+					if (!COM_ParseToken(&tokenpos, true) || com_token[0] <= ' ')
 					{
 						printf("invalid vertex influence \"%s\"\n", line);
 						return 0;
@@ -1084,7 +1080,7 @@ int parsetriangles(void)
 				if (j == numinfluences)
 					break;
 			}
-			triangles[numtriangles].v[current - 1] = i;
+			triangles[numtriangles].v[corner] = i;
 
 			if (i >= numverts)
 			{
@@ -1122,15 +1118,13 @@ int parsetriangles(void)
 					vertices[i].influenceweight[j] = temp_influence[j];
 				}
 			}
-
-			current++;
-			if (current >= 4)
-			{
-				current = 0;
-				numtriangles++;
-			}
+			// skip any trailing parameters (might be a later version of smd)
+			while (com_token[0] != '\n' && COM_ParseToken(&tokenpos, true));
 		}
+		numtriangles++;
 	}
+	// skip any trailing parameters (might be a later version of smd)
+	while (COM_ParseToken(&tokenpos, true) && com_token[0] != '\n');
 
 	printf("parsetriangles: done\n");
 	return 1;
@@ -1138,38 +1132,42 @@ int parsetriangles(void)
 
 int parsemodelfile(void)
 {
-	int i;
-	char line[1024], command[256];
 	tokenpos = modelfile;
-	while (getline(line))
+	while (COM_ParseToken(&tokenpos, false))
 	{
-		sscanf(line, "%s %i", command, &i);
-		if (!strcmp(command, "version"))
+		if (!strcmp(com_token, "version"))
 		{
-			if (i != 1)
+			COM_ParseToken(&tokenpos, true);
+			if (atoi(com_token) != 1)
 			{
-				printf("file is version %d, only version 1 is supported\n", i);
+				printf("file is version %s, only version 1 is supported\n", com_token);
 				return 0;
 			}
 		}
-		else if (!strcmp(command, "nodes"))
+		else if (!strcmp(com_token, "nodes"))
 		{
+			// skip any trailing parameters (might be a later version of smd)
+			while (COM_ParseToken(&tokenpos, true) && com_token[0] != '\n');
 			if (!parsenodes())
 				return 0;
 		}
-		else if (!strcmp(command, "skeleton"))
+		else if (!strcmp(com_token, "skeleton"))
 		{
+			// skip any trailing parameters (might be a later version of smd)
+			while (COM_ParseToken(&tokenpos, true) && com_token[0] != '\n');
 			if (!parseskeleton())
 				return 0;
 		}
-		else if (!strcmp(command, "triangles"))
+		else if (!strcmp(com_token, "triangles"))
 		{
+			// skip any trailing parameters (might be a later version of smd)
+			while (COM_ParseToken(&tokenpos, true) && com_token[0] != '\n');
 			if (!parsetriangles())
 				return 0;
 		}
 		else
 		{
-			printf("unknown command \"%s\"\n", line);
+			printf("unknown command \"%s\"\n", com_token);
 			return 0;
 		}
 	}
