@@ -1,0 +1,12 @@
+
+# save the model as box.dpm
+model box
+# move the model this much before saving
+origin 0 0 0
+# rotate the model 0 degrees around vertical
+rotate 0
+# scale the model by this amount, 0.5 would be half size and 2.0 would be doule size
+scale 1
+# load the mesh file, this is stored into the dpm as frame 0
+scene box.smd
+
