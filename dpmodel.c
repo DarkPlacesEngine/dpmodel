@@ -47,8 +47,6 @@
 #endif
 
 char outputdir_name[MAX_FILEPATH];
-char output_name[MAX_FILEPATH];
-char header_name[MAX_FILEPATH];
 char model_name[MAX_FILEPATH];
 char scene_name[MAX_FILEPATH];
 char model_name_uppercase[MAX_FILEPATH];
@@ -529,6 +527,13 @@ void transform(double in[3], bonepose_t matrix, double out[3])
 	out[0] = in[0] * matrix.m[0][0] + in[1] * matrix.m[0][1] + in[2] * matrix.m[0][2] + matrix.m[0][3];
 	out[1] = in[0] * matrix.m[1][0] + in[1] * matrix.m[1][1] + in[2] * matrix.m[1][2] + matrix.m[1][3];
 	out[2] = in[0] * matrix.m[2][0] + in[1] * matrix.m[2][1] + in[2] * matrix.m[2][2] + matrix.m[2][3];
+}
+
+void transformnormal(double in[3], bonepose_t matrix, double out[3])
+{
+	out[0] = in[0] * matrix.m[0][0] + in[1] * matrix.m[0][1] + in[2] * matrix.m[0][2];
+	out[1] = in[0] * matrix.m[1][0] + in[1] * matrix.m[1][1] + in[2] * matrix.m[1][2];
+	out[2] = in[0] * matrix.m[2][0] + in[1] * matrix.m[2][1] + in[2] * matrix.m[2][2];
 }
 
 void inversetransform(double in[3], bonepose_t matrix, double out[3])
@@ -1564,8 +1569,6 @@ int sc_model(void)
 	chopextension(model_name);
 	stringtouppercase(model_name, model_name_uppercase);
 
-	sprintf(header_name, "%s%s.h", outputdir_name, model_name);
-	sprintf(output_name, "%s%s.dpm", outputdir_name, model_name);
 	return 1;
 }
 
@@ -1663,7 +1666,9 @@ int sc_scene(void)
 	printf("parsing scene %s\n", scene_name);
 	if (!headerfile)
 	{
-		headerfile = fopen(header_name, "wb");
+		char filename[MAX_FILEPATH];
+		sprintf(filename, "%s%s.h", outputdir_name, model_name);
+		headerfile = fopen(filename, "wb");
 		if (headerfile)
 		{
 			fprintf(headerfile, "/*\n");
@@ -1729,9 +1734,11 @@ int processcommand(char *command)
 	return 0;
 }
 
-int convertmodel(void);
+int writemodel_dpm(void);
+int writemodel_md3(void);
 void processscript(void)
 {
+	int i;
 	char *c;
 	inittokens(scriptbytes);
 	numframes = 0;
@@ -1769,11 +1776,27 @@ void processscript(void)
 		return;
 	}
 	fixrootbones();
-	if (!convertmodel())
+	// print model stats
+	printf("model stats:\n");
+	printf("%i vertices %i triangles %i bones %i shaders %i frames\n", numverts, numtriangles, numbones, numshaders, numframes);
+	printf("meshes:\n");
+	for (i = 0;i < numshaders;i++)
 	{
-		freeframes();
-		return;
+		int j;
+		int nverts, ntris;
+		nverts = 0;
+		for (j = 0;j < numverts;j++)
+			if (vertices[j].shadernum == i)
+				nverts++;
+		ntris = 0;
+		for (j = 0;j < numtriangles;j++)
+			if (triangles[j].shadernum == i)
+				ntris++;
+		printf("%5i tris%6i verts : %s\n", ntris, nverts, shaders[i]);
 	}
+	// write the model formats
+	writemodel_dpm();
+	writemodel_md3();
 	freeframes();
 }
 
@@ -1854,7 +1877,18 @@ void putnulls(int num)
 		*output++ = 0;
 }
 
-void putlong(int num)
+void putbyte(int num)
+{
+	*output++ = num;
+}
+
+void putbeshort(int num)
+{
+	*output++ = ((num >>  8) & 0xFF);
+	*output++ = ((num >>  0) & 0xFF);
+}
+
+void putbelong(int num)
 {
 	*output++ = ((num >> 24) & 0xFF);
 	*output++ = ((num >> 16) & 0xFF);
@@ -1862,7 +1896,7 @@ void putlong(int num)
 	*output++ = ((num >>  0) & 0xFF);
 }
 
-void putfloat(double num)
+void putbefloat(double num)
 {
 	union
 	{
@@ -1875,7 +1909,37 @@ void putfloat(double num)
 	// this matchs for both positive and negative 0, thus setting it to positive 0
 	if (n.f == 0)
 		n.f = 0;
-	putlong(n.i);
+	putbelong(n.i);
+}
+
+void putleshort(int num)
+{
+	*output++ = ((num >>  0) & 0xFF);
+	*output++ = ((num >>  8) & 0xFF);
+}
+
+void putlelong(int num)
+{
+	*output++ = ((num >>  0) & 0xFF);
+	*output++ = ((num >>  8) & 0xFF);
+	*output++ = ((num >> 16) & 0xFF);
+	*output++ = ((num >> 24) & 0xFF);
+}
+
+void putlefloat(double num)
+{
+	union
+	{
+		float f;
+		int i;
+	}
+	n;
+
+	n.f = num;
+	// this matchs for both positive and negative 0, thus setting it to positive 0
+	if (n.f == 0)
+		n.f = 0;
+	putlelong(n.i);
 }
 
 void putinit(void)
@@ -1901,12 +1965,13 @@ lump_t;
 
 //double posemins[MAX_FRAMES][3], posemaxs[MAX_FRAMES][3], poseradius[MAX_FRAMES];
 
-int convertmodel(void)
+int writemodel_dpm(void)
 {
 	int i, j, k, l, nverts, ntris;
 	float mins[3], maxs[3], yawradius, allradius;
 	int pos_filesize, pos_lumps, pos_frames, pos_bones, pos_meshs, pos_verts, pos_texcoords, pos_index, pos_groupids, pos_framebones;
 	int filesize, restoreposition;
+	char filename[MAX_FILEPATH];
 
 	//sentinelcheckframes(__FILE__, __LINE__);
 
@@ -1916,11 +1981,11 @@ int convertmodel(void)
 	putstring("DARKPLACESMODEL", 16);
 
 	// type 2 model, hierarchical skeletal pose
-	putlong(2);
+	putbelong(2);
 
 	// filesize
 	pos_filesize = putgetposition();
-	putlong(0);
+	putbelong(0);
 
 	// bounding box, cylinder, and sphere
 	mins[0] = frames[0].mins[0];
@@ -1942,33 +2007,33 @@ int convertmodel(void)
 		if (yawradius < frames[i].yawradius) yawradius = frames[i].yawradius;
 		if (allradius < frames[i].allradius) allradius = frames[i].allradius;
 	}
-	putfloat(mins[0]);
-	putfloat(mins[1]);
-	putfloat(mins[2]);
-	putfloat(maxs[0]);
-	putfloat(maxs[1]);
-	putfloat(maxs[2]);
-	putfloat(yawradius);
-	putfloat(allradius);
+	putbefloat(mins[0]);
+	putbefloat(mins[1]);
+	putbefloat(mins[2]);
+	putbefloat(maxs[0]);
+	putbefloat(maxs[1]);
+	putbefloat(maxs[2]);
+	putbefloat(yawradius);
+	putbefloat(allradius);
 
 	// numbers of things
-	putlong(numbones);
-	putlong(numshaders);
-	putlong(numframes);
+	putbelong(numbones);
+	putbelong(numshaders);
+	putbelong(numframes);
 
 	// offsets to things
 	pos_lumps = putgetposition();
-	putlong(0);
-	putlong(0);
-	putlong(0);
+	putbelong(0);
+	putbelong(0);
+	putbelong(0);
 
 	// store the bones
 	pos_bones = putgetposition();
 	for (i = 0;i < numbones;i++)
 	{
 		putstring(bones[i].name, MAX_NAME);
-		putlong(bones[i].parent);
-		putlong(bones[i].flags);
+		putbelong(bones[i].parent);
+		putbelong(bones[i].flags);
 	}
 
 	// store the meshs
@@ -1991,17 +2056,17 @@ int convertmodel(void)
 			if (vertices[j].shadernum == i)
 			{
 				vertremap[j] = nverts++;
-				putlong(vertices[j].numinfluences); // how many bones for this vertex (always 1 for smd)
+				putbelong(vertices[j].numinfluences); // how many bones for this vertex (always 1 for smd)
 				for (k = 0;k < vertices[j].numinfluences;k++)
 				{
-					putfloat(vertices[j].influenceorigin[k][0] * vertices[j].influenceweight[k]);
-					putfloat(vertices[j].influenceorigin[k][1] * vertices[j].influenceweight[k]);
-					putfloat(vertices[j].influenceorigin[k][2] * vertices[j].influenceweight[k]);
-					putfloat(vertices[j].influenceweight[k]); // influence of the bone on the vertex
-					putfloat(vertices[j].influencenormal[k][0] * vertices[j].influenceweight[k]);
-					putfloat(vertices[j].influencenormal[k][1] * vertices[j].influenceweight[k]);
-					putfloat(vertices[j].influencenormal[k][2] * vertices[j].influenceweight[k]);
-					putlong(vertices[j].influencebone[k]); // number of the bone
+					putbefloat(vertices[j].influenceorigin[k][0] * vertices[j].influenceweight[k]);
+					putbefloat(vertices[j].influenceorigin[k][1] * vertices[j].influenceweight[k]);
+					putbefloat(vertices[j].influenceorigin[k][2] * vertices[j].influenceweight[k]);
+					putbefloat(vertices[j].influenceweight[k]); // influence of the bone on the vertex
+					putbefloat(vertices[j].influencenormal[k][0] * vertices[j].influenceweight[k]);
+					putbefloat(vertices[j].influencenormal[k][1] * vertices[j].influenceweight[k]);
+					putbefloat(vertices[j].influencenormal[k][2] * vertices[j].influenceweight[k]);
+					putbelong(vertices[j].influencebone[k]); // number of the bone
 				}
 			}
 			else
@@ -2013,8 +2078,8 @@ int convertmodel(void)
 			if (vertices[j].shadernum == i)
 			{
 				// OpenGL wants bottom to top texcoords
-				putfloat(vertices[j].texcoord[0]);
-				putfloat(1.0f - vertices[j].texcoord[1]);
+				putbefloat(vertices[j].texcoord[0]);
+				putbefloat(1.0f - vertices[j].texcoord[1]);
 			}
 		}
 		pos_index = putgetposition();
@@ -2023,27 +2088,27 @@ int convertmodel(void)
 		{
 			if (triangles[j].shadernum == i)
 			{
-				putlong(vertremap[triangles[j].v[0]]);
-				putlong(vertremap[triangles[j].v[1]]);
-				putlong(vertremap[triangles[j].v[2]]);
+				putbelong(vertremap[triangles[j].v[0]]);
+				putbelong(vertremap[triangles[j].v[1]]);
+				putbelong(vertremap[triangles[j].v[2]]);
 				ntris++;
 			}
 		}
 		pos_groupids = putgetposition();
 		for (j = 0;j < numtriangles;j++)
 			if (triangles[j].shadernum == i)
-				putlong(0);
+				putbelong(0);
 
 		// now we actually write the mesh header
 		restoreposition = putgetposition();
 		putsetposition(pos_meshs + i * (MAX_NAME + 24));
 		putstring(shaders[i], MAX_NAME);
-		putlong(nverts);
-		putlong(ntris);
-		putlong(pos_verts);
-		putlong(pos_texcoords);
-		putlong(pos_index);
-		putlong(pos_groupids);
+		putbelong(nverts);
+		putbelong(ntris);
+		putbelong(pos_verts);
+		putbelong(pos_texcoords);
+		putbelong(pos_index);
+		putbelong(pos_groupids);
 		putsetposition(restoreposition);
 	}
 
@@ -2054,391 +2119,280 @@ int convertmodel(void)
 		for (j = 0;j < numbones;j++)
 			for (k = 0;k < 3;k++)
 				for (l = 0;l < 4;l++)
-					putfloat(frames[i].bones[j].m[k][l]);
+					putbefloat(frames[i].bones[j].m[k][l]);
 
 		// now we actually write the frame header
 		restoreposition = putgetposition();
 		putsetposition(pos_frames + i * (MAX_NAME + 36));
 		putstring(frames[i].name, MAX_NAME);
-		putfloat(frames[i].mins[0]);
-		putfloat(frames[i].mins[1]);
-		putfloat(frames[i].mins[2]);
-		putfloat(frames[i].maxs[0]);
-		putfloat(frames[i].maxs[1]);
-		putfloat(frames[i].maxs[2]);
-		putfloat(frames[i].yawradius);
-		putfloat(frames[i].allradius);
-		putlong(pos_framebones);
+		putbefloat(frames[i].mins[0]);
+		putbefloat(frames[i].mins[1]);
+		putbefloat(frames[i].mins[2]);
+		putbefloat(frames[i].maxs[0]);
+		putbefloat(frames[i].maxs[1]);
+		putbefloat(frames[i].maxs[2]);
+		putbefloat(frames[i].yawradius);
+		putbefloat(frames[i].allradius);
+		putbelong(pos_framebones);
 		putsetposition(restoreposition);
 	}
 
 	filesize = putgetposition();
 	putsetposition(pos_lumps);
-	putlong(pos_bones);
-	putlong(pos_meshs);
-	putlong(pos_frames);
+	putbelong(pos_bones);
+	putbelong(pos_meshs);
+	putbelong(pos_frames);
 	putsetposition(pos_filesize);
-	putlong(filesize);
+	putbelong(filesize);
 	putsetposition(filesize);
 
-	// print model stats
-	printf("model stats:\n");
-	printf("%i vertices %i triangles %i bones %i shaders %i frames\n", numverts, numtriangles, numbones, numshaders, numframes);
-	printf("renderlist:\n");
+	sprintf(filename, "%s%s.dpm", outputdir_name, model_name);
+	writefile(filename, outputbuffer, filesize);
+	printf("wrote file %s (size %5ik)\n", filename, (filesize + 1023) >> 10);
+
+	return 1;
+}
+
+
+int writemodel_md3(void)
+{
+	int i, j, k, l, nverts, ntris, numtags;
+	int pos_lumps, pos_frameinfo, pos_tags, pos_firstmesh, pos_meshstart, pos_meshlumps, pos_meshshaders, pos_meshelements, pos_meshtexcoords, pos_meshframevertices, pos_meshend, pos_end;
+	int filesize, restoreposition;
+	char filename[MAX_FILEPATH];
+
+	// FIXME: very bad known bug: this does not obey Quake3's limit of 1000 vertices and 2000 triangles per mesh
+
+	//sentinelcheckframes(__FILE__, __LINE__);
+
+	putsetposition(0);
+
+	// write model header
+	putstring("IDP3", 4); // identifier
+	putlelong(15); // version
+	putstring(model_name, 64);
+	putlelong(0);// flags (FIXME)
+	putlelong(numframes); // frames
+	numtags = 0;
+	for (i = 0;i < numbones;i++)
+		if (!strncmp(bones[i].name, "TAG_", 4))
+			numtags++;
+	putlelong(numtags); // number of tags per frame
+	putlelong(numshaders); // number of meshes
+	putlelong(1); // number of shader names per mesh (they are stacked things like quad shell I think)
+
+	// these are filled in later
+	pos_lumps = putgetposition();
+	putlelong(0); // frameinfo
+	putlelong(0); // tags
+	putlelong(0); // first mesh
+	putlelong(0); // end
+
+	// store frameinfo
+	pos_frameinfo = putgetposition();
+	for (i = 0;i < numframes;i++)
+	{
+		putlefloat(frames[i].mins[0]);
+		putlefloat(frames[i].mins[1]);
+		putlefloat(frames[i].mins[2]);
+		putlefloat(frames[i].maxs[0]);
+		putlefloat(frames[i].maxs[1]);
+		putlefloat(frames[i].maxs[2]);
+		putlefloat((frames[i].mins[0] + frames[i].maxs[0]) * 0.5f);
+		putlefloat((frames[i].mins[1] + frames[i].maxs[1]) * 0.5f);
+		putlefloat((frames[i].mins[2] + frames[i].maxs[2]) * 0.5f);
+		putlefloat(frames[i].allradius);
+		putstring(frames[i].name, 64);
+	}
+
+	// store tags
+	pos_tags = putgetposition();
+	if (numtags)
+	{
+		for (i = 0;i < numframes;i++)
+		{
+			for (k = 0;k < numbones;k++)
+			{
+				if (bones[k].defined)
+				{
+					if (bones[k].parent >= 0)
+						bonematrix[k] = concattransform(bonematrix[bones[k].parent], frames[i].bones[k]);
+					else
+						bonematrix[k] = frames[i].bones[k];
+				}
+			}
+			for (j = 0;j < numbones;j++)
+			{
+				if (strncmp(bones[j].name, "TAG_", 4))
+					continue;
+				putstring(bones[j].name, 64);
+				// output the origin and then 9 rotation floats
+				// these are in a transposed order compared to our matrices,
+				// so this indexing looks a little odd.
+				// origin
+				putlefloat(bonematrix[j].m[0][3]);
+				putlefloat(bonematrix[j].m[1][3]);
+				putlefloat(bonematrix[j].m[2][3]);
+				// x axis
+				putlefloat(bonematrix[j].m[0][0]);
+				putlefloat(bonematrix[j].m[1][0]);
+				putlefloat(bonematrix[j].m[2][0]);
+				// y axis
+				putlefloat(bonematrix[j].m[0][1]);
+				putlefloat(bonematrix[j].m[1][1]);
+				putlefloat(bonematrix[j].m[2][1]);
+				// z axis
+				putlefloat(bonematrix[j].m[0][2]);
+				putlefloat(bonematrix[j].m[1][2]);
+				putlefloat(bonematrix[j].m[2][2]);
+			}
+		}
+	}
+
+	// store the meshes
+	pos_firstmesh = putgetposition();
 	for (i = 0;i < numshaders;i++)
 	{
 		nverts = 0;
 		for (j = 0;j < numverts;j++)
+		{
 			if (vertices[j].shadernum == i)
-				nverts++;
+				vertremap[j] = nverts++;
+			else
+				vertremap[j] = -1;
+		}
 		ntris = 0;
 		for (j = 0;j < numtriangles;j++)
 			if (triangles[j].shadernum == i)
 				ntris++;
-		printf("%5i tris%6i verts : %s\n", ntris, nverts, shaders[i]);
-	}
-	printf("file size: %5ik\n", (filesize + 1023) >> 10);
-	writefile(output_name, outputbuffer, filesize);
-	printf("wrote file %s\n", output_name);
-//	printf("writing shader and textures\n");
 
-/*
-	tripoint *p;
-	tvert_t *tv;
-	int lumps, i, j, k, bonenum, filesizeposition;
-	lump_t lump[9];
-	char name[MAX_NAME + 1];
-	double mins[3], maxs[3], radius, tmins[3], tmaxs[3], tradius, org[3], dist;
-
-	// merge duplicate verts while building triangle list
-	for (i = 0;i < numtriangles;i++)
-	{
-		for (j = 0;j < 3;j++)
+		// write mesh header
+		pos_meshstart = putgetposition();
+		putstring("IDP3", 4); // identifier
+		putstring(shaders[i], 64); // mesh name
+		putlelong(0); // flags (what is this for?)
+		putlelong(numframes); // number of frames
+		putlelong(1); // how many shaders to apply to this mesh (quad shell and such?)
+		putlelong(nverts);
+		putlelong(ntris);
+		// filled in later
+		pos_meshlumps = putgetposition();
+		putlelong(0); // elements
+		putlelong(0); // shaders
+		putlelong(0); // texcoords
+		putlelong(0); // framevertices
+		putlelong(0); // end
+		// write names of shaders to use on this mesh (only one supported in this writer)
+		pos_meshshaders = putgetposition();
+		putstring(shaders[i], 64); // shader name
+		putlelong(0); // shader number (used internally by Quake3 after load?)
+		// write triangles
+		pos_meshelements = putgetposition();
+		for (j = 0;j < numtriangles;j++)
 		{
-			p = &triangles[i].point[j];
-			for (bonenum = 0;bonenum < numbones;bonenum++)
-				if (!strcmp(bone[bonenum].name, p->bonename))
-					break;
-			for (k = 0, tv = tvert;k < numtverts;k++, tv++)
-				if (tv->bonenum == bonenum
-				 && tv->texcoord[0] == p->texcoord[0] && tv->texcoord[1] == p->texcoord[1]
-				 && tv->origin[0] == p->origin[0] && tv->origin[1] == p->origin[1] && tv->origin[2] == p->origin[2]
-//				 && tv->normal[0] == p->normal[0] && tv->normal[1] == p->normal[1] && tv->normal[2] == p->normal[2]
-				 )
-					goto foundtvert;
-			if (k >= MAX_VERTS)
+			if (triangles[j].shadernum == i)
 			{
-				printf("ran out of all %i vertex slots\n", MAX_VERTS);
-				return 0;
+				// swap the triangles because Quake3 uses clockwise triangles
+				putlelong(vertremap[triangles[j].v[0]]);
+				putlelong(vertremap[triangles[j].v[2]]);
+				putlelong(vertremap[triangles[j].v[1]]);
 			}
-			tv->bonenum = bonenum;
-			tv->texcoord[0] = p->texcoord[0];
-			tv->texcoord[1] = p->texcoord[1];
-			tv->origin[0] = p->origin[0];
-			tv->origin[1] = p->origin[1];
-			tv->origin[2] = p->origin[2];
-			tv->normal[0] = p->normal[0];
-			tv->normal[1] = p->normal[1];
-			tv->normal[2] = p->normal[2];
-			numtverts++;
-foundtvert:
-			ttris[i][j] = k;
 		}
-
-		cleancopyname(name, triangles[i].texture, MAX_NAME);
-		for (k = 0;k < numshaders;k++)
+		// write texcoords
+		pos_meshtexcoords = putgetposition();
+		for (j = 0;j < numverts;j++)
 		{
-			if (!memcmp(shader[k], name, MAX_NAME))
-				goto foundshader;
-		}
-		if (k >= MAX_SHADERS)
-		{
-			printf("ran out of all %i shader slots\n", MAX_SHADERS);
-			return 0;
-		}
-		cleancopyname(shader[k], name, MAX_NAME);
-		numshaders++;
-foundshader:
-		ttris[i][3] = k;
-	}
-
-	// remove unused bones
-	memset(boneusage, 0, sizeof(boneusage));
-	memset(boneremap, 0, sizeof(boneremap));
-	for (i = 0;i < numtverts;i++)
-		boneusage[tvert[i].bonenum]++;
-	// count bones that are referenced as a parent
-	for (i = 0;i < numbones;i++)
-		if (boneusage[i])
-			if (bone[i].parent >= 0)
-				boneusage[bone[i].parent]++;
-	numtbones = 0;
-	for (i = 0;i < numbones;i++)
-	{
-		if (boneusage[i])
-		{
-			boneremap[i] = numtbones;
-			boneunmap[numtbones] = i;
-			cleancopyname(tbone[numtbones].name, bone[i].name, MAX_NAME);
-			if (bone[i].parent >= i)
+			if (vertices[j].shadernum == i)
 			{
-				printf("bone %i's parent (%i) is >= %i\n", i, bone[i].parent, i);
-				return 0;
+				// OpenGL wants bottom to top texcoords
+				putlefloat(vertices[j].texcoord[0]);
+				putlefloat(1.0f - vertices[j].texcoord[1]);
 			}
-			if (bone[i].parent >= 0)
-				tbone[numtbones].parent = boneremap[bone[i].parent];
-			else
-				tbone[numtbones].parent = -1;
-			numtbones++;
 		}
-		else
-			boneremap[i] = -1;
-	}
-	for (i = 0;i < numtverts;i++)
-		tvert[i].bonenum = boneremap[tvert[i].bonenum];
-
-	// build render list
-	memset(shaderusage, 0, sizeof(shaderusage));
-	memset(shadertris, 0, sizeof(shadertris));
-	memset(shadertrisstart, 0, sizeof(shadertrisstart));
-	// count shader use
-	for (i = 0;i < numtriangles;i++)
-		shaderusage[ttris[i][3]]++;
-	// prepare lists for triangles
-	j = 0;
-	for (i = 0;i < numshaders;i++)
-	{
-		shadertrisstart[i] = j;
-		j += shaderusage[i];
-	}
-	// store triangles into the lists
-	for (i = 0;i < numtriangles;i++)
-		shadertris[shadertrisstart[ttris[i][3]]++] = i;
-	// reset pointers to the start of their lists
-	for (i = 0;i < numshaders;i++)
-		shadertrisstart[i] -= shaderusage[i];
-
-	mins[0] = mins[1] = mins[2] =  1000000000;
-	maxs[0] = maxs[1] = maxs[2] = -1000000000;
-	radius = 0;
-	for (i = 0;i < numposes;i++)
-	{
-		int j;
-		for (j = 0;j < numbones;j++)
+		pos_meshframevertices = putgetposition();
+		for (j = 0;j < numframes;j++)
 		{
-			if (bone[j].parent >= 0)
-				concattransform(&bonematrix[bone[j].parent], &pose[i][j], &bonematrix[j]);
-			else
-				matrixcopy(&pose[i][j], &bonematrix[j]);
+			for (k = 0;k < numbones;k++)
+			{
+				if (bones[k].defined)
+				{
+					if (bones[k].parent >= 0)
+						bonematrix[k] = concattransform(bonematrix[bones[k].parent], frames[i].bones[k]);
+					else
+						bonematrix[k] = frames[i].bones[k];
+				}
+			}
+			for (k = 0;k < numverts;k++)
+			{
+				if (vertices[k].shadernum == i)
+				{
+					double vertex[3], normal[3], v[3], pitch, yaw;
+					vertex[0] = vertex[1] = vertex[2] = normal[0] = normal[1] = normal[2] = 0;
+					for (l = 0;l < vertices[i].numinfluences;l++)
+					{
+						transform(vertices[k].influenceorigin[l], bonematrix[vertices[k].influencebone[l]], v);
+						vertex[0] += v[0] * vertices[k].influenceweight[l];
+						vertex[1] += v[1] * vertices[k].influenceweight[l];
+						vertex[2] += v[2] * vertices[k].influenceweight[l];
+						transformnormal(vertices[k].influencenormal[l], bonematrix[vertices[k].influencebone[l]], v);
+						normal[0] += v[0] * vertices[k].influenceweight[l];
+						normal[1] += v[1] * vertices[k].influenceweight[l];
+						normal[2] += v[2] * vertices[k].influenceweight[l];
+					}
+					// write the vertex position in Quake3's 10.6 fixed point format
+					for (l = 0;l < 3;l++)
+					{
+						double f = vertex[l] * 64.0;
+						if (f < -32768.0)
+							f = -32768.0;
+						if (f >  32767.0)
+							f =  32767.0;
+						putleshort(f);
+					}
+					// write the surface normal as 8bit quantized pitch and yaw angles
+					if (normal[1] == 0 && normal[0] == 0)
+					{
+						pitch = normal[2] > 0 ? 64 : 192;
+						yaw = 0;
+					}
+					else
+					{
+						pitch = (atan2(normal[2], sqrt(normal[0]*normal[0] + normal[1]*normal[1])) * 128 / M_PI);
+						yaw = (atan2(normal[1], normal[0]) * 128 / M_PI);
+					}
+					putbyte((int)(pitch + 256) & 255);
+					putbyte((int)(yaw + 256) & 255);
+				}
+			}
 		}
-		tmins[0] = tmins[1] = tmins[2] =  1000000000;
-		tmaxs[0] = tmaxs[1] = tmaxs[2] = -1000000000;
-		tradius = 0;
-		for (j = 0;j < numtverts;j++)
-		{
-			transform(tvert[j].origin, &bonematrix[boneunmap[tvert[j].bonenum]], org);
-			if (tmins[0] > org[0]) tmins[0] = org[0];if (tmaxs[0] < org[0]) tmaxs[0] = org[0];
-			if (tmins[1] > org[1]) tmins[1] = org[1];if (tmaxs[1] < org[1]) tmaxs[1] = org[1];
-			if (tmins[2] > org[2]) tmins[2] = org[2];if (tmaxs[2] < org[2]) tmaxs[2] = org[2];
-			dist = org[0]*org[0]+org[1]*org[1]+org[2]*org[2];
-			if (dist > tradius)
-				tradius = dist;
-		}
-		posemins[i][0] = tmins[0];posemaxs[i][0] = tmaxs[0];
-		posemins[i][1] = tmins[1];posemaxs[i][1] = tmaxs[1];
-		posemins[i][2] = tmins[2];posemaxs[i][2] = tmaxs[2];
-		poseradius[i] = tradius;
-		if (mins[0] > tmins[0]) mins[0] = tmins[0];if (maxs[0] < tmaxs[0]) maxs[0] = tmaxs[0];
-		if (mins[1] > tmins[1]) mins[1] = tmins[1];if (maxs[1] < tmaxs[1]) maxs[1] = tmaxs[1];
-		if (mins[2] > tmins[2]) mins[2] = tmins[2];if (maxs[2] < tmaxs[2]) maxs[2] = tmaxs[2];
-		if (radius < tradius) radius = tradius;
-	}
-	k = 0;
-	for (i = 0;i < numscenes;i++)
-	{
-		tmins[0] = tmins[1] = tmins[2] =  1000000000;
-		tmaxs[0] = tmaxs[1] = tmaxs[2] = -1000000000;
-		tradius = 0;
-		for (j = 0;j < scene[i].length;j++, k++)
-		{
-			if (tmins[0] > posemins[k][0]) tmins[0] = posemins[k][0];if (tmaxs[0] < posemaxs[k][0]) tmaxs[0] = posemaxs[k][0];
-			if (tmins[1] > posemins[k][1]) tmins[1] = posemins[k][1];if (tmaxs[1] < posemaxs[k][1]) tmaxs[1] = posemaxs[k][1];
-			if (tmins[2] > posemins[k][2]) tmins[2] = posemins[k][2];if (tmaxs[2] < posemaxs[k][2]) tmaxs[2] = posemaxs[k][2];
-			if (tradius < poseradius[k]) tradius = poseradius[k];
-		}
-		scene[i].mins[0] = tmins[0];scene[i].maxs[0] = tmaxs[0];
-		scene[i].mins[1] = tmins[1];scene[i].maxs[1] = tmaxs[1];
-		scene[i].mins[2] = tmins[2];scene[i].maxs[2] = tmaxs[2];
-		scene[i].radius = tradius;
+
+		// now we actually write the mesh lumps
+		pos_meshend = putgetposition();
+		restoreposition = putgetposition();
+		putsetposition(pos_meshlumps);
+		putlelong(pos_meshelements - pos_meshstart);
+		putlelong(pos_meshshaders - pos_meshstart);
+		putlelong(pos_meshtexcoords - pos_meshstart);
+		putlelong(pos_meshframevertices - pos_meshstart);
+		putlelong(pos_meshend - pos_meshstart);
+		putsetposition(restoreposition);
 	}
 
-	putinit();
-	putstring("ZYMOTICMODEL", 12);
-	putlong(1); // version
-	filesizeposition = putgetposition();
-	putlong(0); // filesize, will be filled in later
-	putfloat(mins[0]);
-	putfloat(mins[1]);
-	putfloat(mins[2]);
-	putfloat(maxs[0]);
-	putfloat(maxs[1]);
-	putfloat(maxs[2]);
-	putfloat(radius);
-	putlong(numtverts);
-	putlong(numtriangles);
-	putlong(numshaders);
-	putlong(numtbones);
-	putlong(numscenes);
-	lumps = putgetposition();
-	putnulls(9 * 8); // make room for lumps to be filled in later
-	// scenes
-	lump[0].start = putgetposition();
-	for (i = 0;i < numscenes;i++)
-	{
-		chopextension(scene[i].name);
-		cleancopyname(name, scene[i].name, MAX_NAME);
-		putstring(name, MAX_NAME);
-		putfloat(scene[i].mins[0]);
-		putfloat(scene[i].mins[1]);
-		putfloat(scene[i].mins[2]);
-		putfloat(scene[i].maxs[0]);
-		putfloat(scene[i].maxs[1]);
-		putfloat(scene[i].maxs[2]);
-		putfloat(scene[i].radius);
-		putfloat(scene[i].framerate);
-		j = 0;
+	pos_end = putgetposition();
 
-// normally the scene will loop, if this is set it will stay on the final frame
-#define ZYMSCENEFLAG_NOLOOP 1
+	putsetposition(pos_lumps);
+	putlelong(pos_frameinfo); // frameinfo
+	putlelong(pos_tags); // tags
+	putlelong(pos_firstmesh); // first mesh
+	putlelong(pos_end); // end
+	putsetposition(pos_end);
 
-		if (scene[i].noloop)
-			j |= ZYMSCENEFLAG_NOLOOP;
-		putlong(j);
-		putlong(scene[i].start);
-		putlong(scene[i].length);
-	}
-	lump[0].length = putgetposition() - lump[0].start;
-	// poses
-	lump[1].start = putgetposition();
-	for (i = 0;i < numposes;i++)
-	{
-		for (j = 0;j < numtbones;j++)
-		{
-			k = boneunmap[j];
-			putfloat(pose[i][k].m[0][0]);
-			putfloat(pose[i][k].m[0][1]);
-			putfloat(pose[i][k].m[0][2]);
-			putfloat(pose[i][k].m[0][3]);
-			putfloat(pose[i][k].m[1][0]);
-			putfloat(pose[i][k].m[1][1]);
-			putfloat(pose[i][k].m[1][2]);
-			putfloat(pose[i][k].m[1][3]);
-			putfloat(pose[i][k].m[2][0]);
-			putfloat(pose[i][k].m[2][1]);
-			putfloat(pose[i][k].m[2][2]);
-			putfloat(pose[i][k].m[2][3]);
-		}
-	}
-	lump[1].length = putgetposition() - lump[1].start;
-	// bones
-	lump[2].start = putgetposition();
-	for (i = 0;i < numtbones;i++)
-	{
-		cleancopyname(name, tbone[i].name, MAX_NAME);
-		putstring(name, MAX_NAME);
-		putlong(0); // bone flags must be set by other utilities
-		putlong(tbone[i].parent);
-	}
-	lump[2].length = putgetposition() - lump[2].start;
-	// vertex bone counts
-	lump[3].start = putgetposition();
-	for (i = 0;i < numtverts;i++)
-		putlong(1); // number of bones, always 1 in smd
-	lump[3].length = putgetposition() - lump[3].start;
-	// vertices
-	lump[4].start = putgetposition();
-	for (i = 0;i < numtverts;i++)
-	{
-		// this would be a loop (bonenum origin) if there were more than one bone per vertex (smd file limitation)
-		putlong(tvert[i].bonenum);
-		// the origin is relative to the bone and scaled by percentage of influence (in smd there is only one bone per vertex, so that would be 1.0)
-		putfloat(tvert[i].origin[0]);
-		putfloat(tvert[i].origin[1]);
-		putfloat(tvert[i].origin[2]);
-	}
-	lump[4].length = putgetposition() - lump[4].start;
-	// texture coordinates for the vertices, separated only for reasons of OpenGL array processing
-	lump[5].start = putgetposition();
-	for (i = 0;i < numtverts;i++)
-	{
-		putfloat(tvert[i].texcoord[0]); // s
-		putfloat(tvert[i].texcoord[1]); // t
-	}
-	lump[5].length = putgetposition() - lump[5].start;
-	// render list
-	lump[6].start = putgetposition();
-	// shader numbers are implicit in this list (always sequential), so they are not stored
-	for (i = 0;i < numshaders;i++)
-	{
-		putlong(shaderusage[i]); // how many triangles to follow
-		for (j = 0;j < shaderusage[i];j++)
-		{
-			putlong(ttris[shadertris[shadertrisstart[i]+j]][0]);
-			putlong(ttris[shadertris[shadertrisstart[i]+j]][1]);
-			putlong(ttris[shadertris[shadertrisstart[i]+j]][2]);
-		}
-	}
-	lump[6].length = putgetposition() - lump[6].start;
-	// shader names
-	lump[7].start = putgetposition();
-	for (i = 0;i < numshaders;i++)
-	{
-		chopextension(shader[i]);
-		cleancopyname(name, shader[i], MAX_NAME);
-		putstring(name, MAX_NAME);
-	}
-	lump[7].length = putgetposition() - lump[7].start;
-	// trizone (triangle zone numbers, these must be filled in later by other utilities)
-	lump[8].start = putgetposition();
-	putnulls(numtriangles);
-	lump[8].length = putgetposition() - lump[8].start;
-	bufferused = putgetposition();
-	putsetposition(lumps);
-	for (i = 0;i < 9;i++) // number of lumps
-	{
-		putlong(lump[i].start);
-		putlong(lump[i].length);
-	}
-	putsetposition(filesizeposition);
-	putlong(bufferused);
+	filesize = pos_end;
 
-	// print model stats
-	printf("model stats:\n");
-	printf("%i vertices %i triangles %i bones %i shaders %i scenes %i poses\n", numtverts, numtriangles, numtbones, numshaders, numscenes, numposes);
-	printf("renderlist:\n");
-	for (i = 0;i < numshaders;i++)
-	{
-		for (j = 0;j < MAX_NAME && shader[i][j];j++)
-			name[j] = shader[i][j];
-		for (;j < MAX_NAME;j++)
-			name[j] = ' ';
-		name[MAX_NAME] = 0;
-		printf("%5i triangles       : %s\n", shaderusage[i], name);
-	}
-	printf("scenes:\n");
-	for (i = 0;i < numscenes;i++)
-	{
-		for (j = 0;j < MAX_NAME && scene[i].name[j];j++)
-			name[j] = scene[i].name[j];
-		for (;j < MAX_NAME;j++)
-			name[j] = ' ';
-		name[MAX_NAME] = 0;
-		printf("%5i frames % 3.0f fps %s : %s\n", scene[i].length, scene[i].framerate, scene[i].noloop ? "noloop" : "", name);
-	}
-	printf("file size: %5ik\n", (bufferused + 512) >> 10);
-	writefile(outputname, outputbuffer, bufferused);
-//	printf("writing shader and textures\n");
-*/
+	sprintf(filename, "%s%s.md3", outputdir_name, model_name);
+	writefile(filename, outputbuffer, filesize);
+	printf("wrote file %s (size %5ik)\n", filename, (filesize + 1023) >> 10);
+
 	return 1;
 }
 
