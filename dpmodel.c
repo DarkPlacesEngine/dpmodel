@@ -46,13 +46,17 @@
 #define EPSILON_TEXCOORD 0
 #endif
 
+char texturedir_name[MAX_FILEPATH];
 char outputdir_name[MAX_FILEPATH];
 char model_name[MAX_FILEPATH];
 char scene_name[MAX_FILEPATH];
 char model_name_uppercase[MAX_FILEPATH];
 char scene_name_uppercase[MAX_FILEPATH];
+char model_name_lowercase[MAX_FILEPATH];
+char scene_name_lowercase[MAX_FILEPATH];
 
 FILE *headerfile = NULL;
+FILE *qcheaderfile = NULL;
 
 double modelorigin[3] = {0, 0, 0}, modelrotate = 0, modelscale = 1;
 
@@ -68,6 +72,20 @@ void stringtouppercase(char *in, char *out)
 		// force lowercase
 		if (*out >= 'a' && *out <= 'z')
 			*out += 'A' - 'a';
+		out++;
+	}
+	*out++ = 0;
+}
+
+void stringtolowercase(char *in, char *out)
+{
+	// cleanup name
+	while (*in)
+	{
+		*out = *in++;
+		// force lowercase
+		if (*out >= 'A' && *out <= 'Z')
+			*out += 'a' - 'A';
 		out++;
 	}
 	*out++ = 0;
@@ -773,6 +791,8 @@ int parseskeleton(void)
 	// skip any trailing parameters (might be a later version of smd)
 	while (COM_ParseToken(&tokenpos, true) && com_token[0] != '\n');
 
+	if (frame >= baseframe && qcheaderfile)
+		fprintf(qcheaderfile, "$frame");
 	for (frame = 0;frame < numframes;frame++)
 	{
 		if (!frames[frame].defined)
@@ -804,6 +824,8 @@ int parseskeleton(void)
 		}
 		if (frame >= baseframe && headerfile)
 			fprintf(headerfile, "#define MODEL_%s_%s_%i %i\n", model_name_uppercase, scene_name_uppercase, frame - baseframe, frame);
+		if (frame >= baseframe && qcheaderfile)
+			fprintf(qcheaderfile, " %s_%i", scene_name_lowercase, frame - baseframe + 1);
 	}
 	if (headerfile)
 	{
@@ -812,6 +834,8 @@ int parseskeleton(void)
 		fprintf(headerfile, "#define MODEL_%s_%s_LENGTH %i\n", model_name_uppercase, scene_name_uppercase, numframes - baseframe);
 		fprintf(headerfile, "\n");
 	}
+	if (qcheaderfile)
+		fprintf(qcheaderfile, "\n");
 	return 1;
 }
 
@@ -1218,7 +1242,9 @@ int cleanupbones(void)
 	{
 		if (bones[i].defined)
 		{
-			bones[i].users = 0;
+			// keep all bones as they may be unmentioned attachment points, and this allows the same animations to be used on multiple meshes that might have different bone usage but the same original skeleton
+			bones[i].users = 1;
+			//bones[i].users = 0;
 			if (bones[i].flags & DPMBONEFLAG_ATTACH)
 				bones[i].users++;
 		}
@@ -1359,20 +1385,14 @@ int cleanupframes(void)
 int cleanupshadernames(void)
 {
 	int i;
-	//char temp[1024];
+	char temp[1024+MAX_NAME];
 	for (i = 0;i < numshaders;i++)
 	{
-		/*
-		sprintf(temp, "%s%s", texturedir, shaders[i]);
-		chopextension(temp);
-		if (strlen(temp) >= MAX_NAME)
-		{
-			printf("shader name too long %s\n", temp);
-			return 0;
-		}
-		cleancopyname(shaders[i], temp, MAX_NAME);
-		*/
 		chopextension(shaders[i]);
+		sprintf(temp, "%s%s", texturedir_name, shaders[i]);
+		if (strlen(temp) >= MAX_NAME)
+			printf("warning: shader name too long %s\n", temp);
+		cleancopyname(shaders[i], temp, MAX_NAME);
 	}
 	return 1;
 }
@@ -1568,11 +1588,11 @@ int sc_model(void)
 	strcpy(model_name, c);
 	chopextension(model_name);
 	stringtouppercase(model_name, model_name_uppercase);
+	stringtolowercase(model_name, model_name_lowercase);
 
 	return 1;
 }
 
-/*
 int sc_texturedir(void)
 {
 	char *c = gettoken();
@@ -1580,36 +1600,33 @@ int sc_texturedir(void)
 		return 0;
 	if (!isfilename(c))
 		return 0;
-	strcpy(texturedir, c);
-	if (strlen(texturedir) && texturedir[strlen(texturedir) - 1] != '/')
-		strcat(texturedir, "/");
-	if (texturedir[0] == '/')
+	strcpy(texturedir_name, c);
+	if (texturedir_name[0] == '/')
 	{
 		printf("texturedir not allowed to begin with \"/\" (could access parent directories)\n");
-		printf("normally a texturedir should be the same name as the model it is for\n");
+		printf("normally a texturedir should be the same name as the model it is for (example: models/biggun/ for models/biggun.dpm)\n");
 		return 0;
 	}
-	if (strstr(texturedir, ":"))
+	if (strstr(texturedir_name, ":"))
 	{
 		printf("\":\" not allowed in texturedir (could access parent directories)\n");
-		printf("normally a texturedir should be the same name as the model it is for\n");
+		printf("normally a texturedir should be the same name as the model it is for (example: models/biggun/ for models/biggun.dpm)\n");
 		return 0;
 	}
-	if (strstr(texturedir, "."))
+	if (strstr(texturedir_name, "."))
 	{
 		printf("\".\" not allowed in texturedir (could access parent directories)\n");
-		printf("normally a texturedir should be the same name as the model it is for\n");
+		printf("normally a texturedir should be the same name as the model it is for (example: models/biggun/ for models/biggun.dpm)\n");
 		return 0;
 	}
-	if (strstr(texturedir, "\\"))
+	if (strstr(texturedir_name, "\\"))
 	{
 		printf("\"\\\" not allowed in texturedir (use / instead)\n");
-		printf("normally a texturedir should be the same name as the model it is for\n");
+		printf("normally a texturedir should be the same name as the model it is for (example: models/biggun/ for models/biggun.dpm)\n");
 		return 0;
 	}
 	return 1;
 }
-*/
 
 int sc_origin(void)
 {
@@ -1652,6 +1669,7 @@ int sc_scale(void)
 int sc_scene(void)
 {
 	char *c;
+	char filename[MAX_FILEPATH];
 	c = gettoken();
 	if (!c)
 		return 0;
@@ -1663,12 +1681,12 @@ int sc_scene(void)
 	cleancopyname(scene_name, c, MAX_NAME);
 	chopextension(scene_name);
 	stringtouppercase(scene_name, scene_name_uppercase);
+	stringtolowercase(scene_name, scene_name_lowercase);
 	printf("parsing scene %s\n", scene_name);
 	if (!headerfile)
 	{
-		char filename[MAX_FILEPATH];
 		sprintf(filename, "%s%s.h", outputdir_name, model_name);
-		headerfile = fopen(filename, "wb");
+		headerfile = fopen(filename, "w");
 		if (headerfile)
 		{
 			fprintf(headerfile, "/*\n");
@@ -1679,6 +1697,19 @@ int sc_scene(void)
 			fprintf(headerfile, "#ifndef MODEL_%s_H\n", model_name_uppercase);
 			fprintf(headerfile, "#define MODEL_%s_H\n", model_name_uppercase);
 			fprintf(headerfile, "\n");
+		}
+	}
+	if (!qcheaderfile)
+	{
+		sprintf(filename, "%s%s.qc", outputdir_name, model_name);
+		qcheaderfile = fopen(filename, "w");
+		if (qcheaderfile)
+		{
+			fprintf(qcheaderfile, "/*\n");
+			fprintf(qcheaderfile, "Generated header file for %s\n", model_name);
+			fprintf(qcheaderfile, "This file contains frame number definitions for use in code referencing the model, simply copy and paste into your qc file.\n");
+			fprintf(qcheaderfile, "*/\n");
+			fprintf(qcheaderfile, "\n");
 		}
 	}
 	if (!parsemodelfile())
@@ -1703,7 +1734,7 @@ sccommand sc_commands[] =
 	{"attachment", sc_attachment},
 	{"outputdir", sc_outputdir},
 	{"model", sc_model},
-//	{"texturedir", sc_texturedir},
+	{"texturedir", sc_texturedir},
 	{"origin", sc_origin},
 	{"rotate", sc_rotate},
 	{"scale", sc_scale},
@@ -1754,6 +1785,13 @@ void processscript(void)
 	{
 		fprintf(headerfile, "#endif /*MODEL_%s_H*/\n", model_name_uppercase);
 		fclose(headerfile);
+		headerfile = NULL;
+	}
+	if (qcheaderfile)
+	{
+		fprintf(qcheaderfile, "\n// end of frame definitions for %s\n\n\n", model_name);
+		fclose(qcheaderfile);
+		qcheaderfile = NULL;
 	}
 	if (!addattachments())
 	{
@@ -2317,9 +2355,9 @@ int writemodel_md3(void)
 				if (bones[k].defined)
 				{
 					if (bones[k].parent >= 0)
-						bonematrix[k] = concattransform(bonematrix[bones[k].parent], frames[i].bones[k]);
+						bonematrix[k] = concattransform(bonematrix[bones[k].parent], frames[j].bones[k]);
 					else
-						bonematrix[k] = frames[i].bones[k];
+						bonematrix[k] = frames[j].bones[k];
 				}
 			}
 			for (k = 0;k < numverts;k++)
@@ -2328,7 +2366,7 @@ int writemodel_md3(void)
 				{
 					double vertex[3], normal[3], v[3], pitch, yaw;
 					vertex[0] = vertex[1] = vertex[2] = normal[0] = normal[1] = normal[2] = 0;
-					for (l = 0;l < vertices[i].numinfluences;l++)
+					for (l = 0;l < vertices[k].numinfluences;l++)
 					{
 						transform(vertices[k].influenceorigin[l], bonematrix[vertices[k].influencebone[l]], v);
 						vertex[0] += v[0] * vertices[k].influenceweight[l];
