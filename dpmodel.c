@@ -783,7 +783,7 @@ int parseskeleton(void)
 				return 0;
 			}
 			// LordHavoc: compute matrix
-			frames[frame].bones[num] = computebonematrix(x, y, z, a, b, c);
+			frames[frame].bones[num] = computebonematrix(x * modelscale, y * modelscale, z * modelscale, a, b, c);
 		}
 		// skip any trailing parameters (might be a later version of smd)
 		while (COM_ParseToken(&tokenpos, true) && com_token[0] != '\n');
@@ -1117,7 +1117,7 @@ int parsetriangles(void)
 				vertices[i].shadernum = triangles[numtriangles].shadernum;
 				vertices[i].texcoord[0] = vtexcoord[0];
 				vertices[i].texcoord[1] = vtexcoord[1];
-				vertices[i].originalorigin[0] = org[0];vertices[i].originalorigin[1] = org[1];vertices[i].originalorigin[2] = org[2];
+				vertices[i].originalorigin[0] = org[0] * modelscale;vertices[i].originalorigin[1] = org[1] * modelscale;vertices[i].originalorigin[2] = org[2] * modelscale;
 				vertices[i].originalnormal[0] = normal[0];vertices[i].originalnormal[1] = normal[1];vertices[i].originalnormal[2] = normal[2];
 				vertices[i].numinfluences = numinfluences;
 				for( j=0; j < vertices[i].numinfluences; j++ )
@@ -1404,15 +1404,15 @@ void fixrootbones(void)
 	bonepose_t rootpose;
 	cy = cos(modelrotate * M_PI / 180.0);
 	sy = sin(modelrotate * M_PI / 180.0);
-	rootpose.m[0][0] = cy * modelscale;
-	rootpose.m[1][0] = sy * modelscale;
+	rootpose.m[0][0] = cy;
+	rootpose.m[1][0] = sy;
 	rootpose.m[2][0] = 0;
-	rootpose.m[0][1] = -sy * modelscale;
-	rootpose.m[1][1] = cy * modelscale;
+	rootpose.m[0][1] = -sy;
+	rootpose.m[1][1] = cy;
 	rootpose.m[2][1] = 0;
 	rootpose.m[0][2] = 0;
 	rootpose.m[1][2] = 0;
-	rootpose.m[2][2] = modelscale;
+	rootpose.m[2][2] = 1;
 	rootpose.m[0][3] = -modelorigin[0] * rootpose.m[0][0] + -modelorigin[1] * rootpose.m[1][0] + -modelorigin[2] * rootpose.m[2][0];
 	rootpose.m[1][3] = -modelorigin[0] * rootpose.m[0][1] + -modelorigin[1] * rootpose.m[1][1] + -modelorigin[2] * rootpose.m[2][1];
 	rootpose.m[2][3] = -modelorigin[0] * rootpose.m[0][2] + -modelorigin[1] * rootpose.m[1][2] + -modelorigin[2] * rootpose.m[2][2];
