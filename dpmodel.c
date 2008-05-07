@@ -964,7 +964,7 @@ int parsetriangles(void)
 				printf("error in parsetriangles, expecting 'org[0]', script line:%s\n", line);
 				return 0;
 			}
-			org[0] = atof( com_token );
+			org[0] = atof( com_token ) * modelscale;
 
 			//get org[1] token
 			if (!COM_ParseToken(&tokenpos, true) || com_token[0] <= ' ')
@@ -972,7 +972,7 @@ int parsetriangles(void)
 				printf("error in parsetriangles, expecting 'org[1]', script line:%s\n", line);
 				return 0;
 			}
-			org[1] = atof( com_token );
+			org[1] = atof( com_token ) * modelscale;
 
 			//get org[2] token
 			if (!COM_ParseToken(&tokenpos, true) || com_token[0] <= ' ')
@@ -980,7 +980,7 @@ int parsetriangles(void)
 				printf("error in parsetriangles, expecting 'org[2]', script line:%s\n", line);
 				return 0;
 			}
-			org[2] = atof( com_token );
+			org[2] = atof( com_token ) * modelscale;
 
 			//get normal[0] token
 			if (!COM_ParseToken(&tokenpos, true) || com_token[0] <= ' ')
@@ -1117,7 +1117,7 @@ int parsetriangles(void)
 				vertices[i].shadernum = triangles[numtriangles].shadernum;
 				vertices[i].texcoord[0] = vtexcoord[0];
 				vertices[i].texcoord[1] = vtexcoord[1];
-				vertices[i].originalorigin[0] = org[0] * modelscale;vertices[i].originalorigin[1] = org[1] * modelscale;vertices[i].originalorigin[2] = org[2] * modelscale;
+				vertices[i].originalorigin[0] = org[0];vertices[i].originalorigin[1] = org[1];vertices[i].originalorigin[2] = org[2];
 				vertices[i].originalnormal[0] = normal[0];vertices[i].originalnormal[1] = normal[1];vertices[i].originalnormal[2] = normal[2];
 				vertices[i].numinfluences = numinfluences;
 				for( j=0; j < vertices[i].numinfluences; j++ )
