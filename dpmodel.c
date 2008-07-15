@@ -2364,7 +2364,7 @@ int writemodel_md3(void)
 			{
 				if (vertices[k].shadernum == i)
 				{
-					double vertex[3], normal[3], v[3], pitch, yaw;
+					double vertex[3], normal[3], v[3], longitude, latitude;
 					vertex[0] = vertex[1] = vertex[2] = normal[0] = normal[1] = normal[2] = 0;
 					for (l = 0;l < vertices[k].numinfluences;l++)
 					{
@@ -2387,19 +2387,22 @@ int writemodel_md3(void)
 							f =  32767.0;
 						putleshort(f);
 					}
-					// write the surface normal as 8bit quantized pitch and yaw angles
-					if (normal[1] == 0 && normal[0] == 0)
-					{
-						pitch = normal[2] > 0 ? 64 : 192;
-						yaw = 0;
-					}
-					else
-					{
-						pitch = (atan2(normal[2], sqrt(normal[0]*normal[0] + normal[1]*normal[1])) * 128 / M_PI);
-						yaw = (atan2(normal[1], normal[0]) * 128 / M_PI);
-					}
-					putbyte((int)(pitch + 256) & 255);
-					putbyte((int)(yaw + 256) & 255);
+					// write the surface normal as 8bit quantized lat/long
+					// the latitude is a yaw angle, but the longitude is not
+					// equivalent to pitch - it is biased 90 degrees
+					// (0 = up, 90 = horizontal, 180 = down)
+					// this is a common source of bugs in md3 exporters
+					latitude = atan2(normal[1], normal[0]);
+					longitude = acos(normal[2]);
+#if 0
+					double normal2[3];
+					normal2[0] = cos(latitude) * sin(longitude);
+					normal2[1] = sin(latitude) * sin(longitude);
+					normal2[2] =                 cos(longitude);
+					printf("%f %f %f : %f %f %f (%f %f = %f %f %f)\n", vertex[0], vertex[1], vertex[2], normal[0], normal[1], normal[2], longitude * 180.0/M_PI, latitude * 180.0/M_PI, normal2[0], normal2[1], normal2[2]);
+#endif
+					putbyte((int)(longitude * 128 / M_PI + 256.5) & 255);
+					putbyte((int)(latitude * 128 / M_PI + 256.5) & 255);
 				}
 			}
 		}
