@@ -21,6 +21,7 @@
 
 #if _MSC_VER
 #pragma warning (disable : 4244)
+#define strcasecmp _stricmp
 #endif
 
 #define MAX_FILEPATH 1024
@@ -46,23 +47,25 @@
 #define EPSILON_TEXCOORD 0
 #endif
 
-char texturedir_name[MAX_FILEPATH];
-char outputdir_name[MAX_FILEPATH];
-char model_name[MAX_FILEPATH];
-char scene_name[MAX_FILEPATH];
-char model_name_uppercase[MAX_FILEPATH];
-char scene_name_uppercase[MAX_FILEPATH];
-char model_name_lowercase[MAX_FILEPATH];
-char scene_name_lowercase[MAX_FILEPATH];
+static char texturedir_name[MAX_FILEPATH];
+static char outputdir_name[MAX_FILEPATH];
+static char model_name[MAX_FILEPATH];
+static char scene_name[MAX_FILEPATH];
+static char model_name_uppercase[MAX_FILEPATH];
+static char scene_name_uppercase[MAX_FILEPATH];
+static char model_name_lowercase[MAX_FILEPATH];
+static char scene_name_lowercase[MAX_FILEPATH];
 
-FILE *headerfile = NULL;
-FILE *qcheaderfile = NULL;
+static FILE *headerfile = NULL;
+static FILE *qcheaderfile = NULL;
+static FILE *qhheaderfile = NULL;
 
-double modelorigin[3] = {0, 0, 0}, modelrotate[3] = {0, 0, 0}, modelscale[3] = {1, 1, 1};
-int modelinvert = 0;
+static double modelorigin[3] = {0, 0, 0}, modelrotate[3] = {0, 0, 0}, modelscale[3] = {1, 1, 1};
+static int modelinvert = 0;
+static double sceneframerate = 10;
 
 // this makes it keep all bones, not removing unused ones (as they might be used for attachments)
-int keepallbones = 1;
+static int keepallbones = 1;
 
 void stringtouppercase(char *in, char *out)
 {
@@ -103,8 +106,8 @@ void cleancopyname(char *out, char *in, int size)
 		if (!*out)
 			break;
 		// force lowercase
-		if (*out >= 'A' && *out <= 'Z')
-			*out += 'a' - 'A';
+		//if (*out >= 'A' && *out <= 'Z')
+		//	*out += 'a' - 'A';
 		// convert backslash to slash
 		if (*out == '\\')
 			*out = '/';
@@ -593,7 +596,7 @@ int parsenodes(void)
 	while (COM_ParseToken(&tokenpos, true))
 	{
 		// if this is the end keyword, we're done with this section of the file
-		if (!strcmp(com_token, "end"))
+		if (!strcasecmp(com_token, "end"))
 			break;
 
 		//parse this line read by tokens
@@ -663,13 +666,18 @@ int parseskeleton(void)
 	double x, y, z, a, b, c;
 	int baseframe;
 
+	chopextension(scene_name);
+	stringtouppercase(scene_name, scene_name_uppercase);
+	stringtolowercase(scene_name, scene_name_lowercase);
+	printf("parsing scene %s\n", scene_name);
+
 	baseframe = numframes;
 	frame = baseframe;
 
 	while (COM_ParseToken(&tokenpos, true))
 	{
 		// if this is the end keyword, we're done with this section of the file
-		if (!strcmp(com_token, "end"))
+		if (!strcasecmp(com_token, "end"))
 			break;
 
 		//parse this line read by tokens
@@ -682,7 +690,7 @@ int parseskeleton(void)
 			return 0;
 		}
 
-		if (!strcmp(com_token, "time"))
+		if (!strcasecmp(com_token, "time"))
 		{
 			//get the time value
 			if (!COM_ParseToken(&tokenpos, true) || com_token[0] <= ' ')
@@ -792,8 +800,6 @@ int parseskeleton(void)
 	// skip any trailing parameters (might be a later version of smd)
 	while (COM_ParseToken(&tokenpos, true) && com_token[0] != '\n');
 
-	if (frame >= baseframe && qcheaderfile)
-		fprintf(qcheaderfile, "$frame");
 	for (frame = 0;frame < numframes;frame++)
 	{
 		if (!frames[frame].defined)
@@ -823,20 +829,73 @@ int parseskeleton(void)
 			frames[frame].bones[frames[frame].numbones - 1].m[0][1] = 35324;
 			printf("duplicate frame named %s\n", frames[frame].name);
 		}
+	}
+
+	if (!headerfile)
+	{
+		sprintf(temp, "%s%s.h", outputdir_name, model_name);
+		headerfile = fopen(temp, "w");
+		if (headerfile)
+		{
+			fprintf(headerfile, "/*\n");
+			fprintf(headerfile, "Generated header file for %s\n", model_name);
+			fprintf(headerfile, "This file contains frame number definitions for use in code referencing the model, to make code more readable and maintainable.\n");
+			fprintf(headerfile, "*/\n");
+			fprintf(headerfile, "\n");
+			fprintf(headerfile, "#ifndef MODEL_%s_H\n", model_name_uppercase);
+			fprintf(headerfile, "#define MODEL_%s_H\n", model_name_uppercase);
+			fprintf(headerfile, "\n");
+		}
+	}
+	if (!qcheaderfile)
+	{
+		sprintf(temp, "%s%s.qc", outputdir_name, model_name);
+		qcheaderfile = fopen(temp, "w");
+		if (qcheaderfile)
+		{
+			fprintf(qcheaderfile, "/*\n");
+			fprintf(qcheaderfile, "Generated header file for %s\n", model_name);
+			fprintf(qcheaderfile, "This file contains frame number definitions for use in code referencing the model, simply copy and paste into your qc file.\n");
+			fprintf(qcheaderfile, "*/\n");
+			fprintf(qcheaderfile, "\n");
+		}
+	}
+	if (!qhheaderfile)
+	{
+		sprintf(temp, "%s%s.qh", outputdir_name, model_name);
+		qhheaderfile = fopen(temp, "w");
+		if (qhheaderfile)
+		{
+			fprintf(qhheaderfile, "/*\n");
+			fprintf(qhheaderfile, "Generated header file for %s\n", model_name);
+			fprintf(qhheaderfile, "This file contains animation definitions for use in code referencing the model, simply add this file to your progs.src before use.\n");
+			fprintf(qhheaderfile, "*/\n");
+			fprintf(qhheaderfile, "\n");
+		}
+	}
+
+	if (qhheaderfile)
+		fprintf(qhheaderfile, "vector anim_%s_%s = '%i %i %g';\n", model_name_lowercase, scene_name_lowercase, baseframe, numframes - baseframe, sceneframerate);
+	if (frame >= baseframe && qcheaderfile)
+		fprintf(qcheaderfile, "$frame");
+	for (frame = 0;frame < numframes;frame++)
+	{
 		if (frame >= baseframe && headerfile)
 			fprintf(headerfile, "#define MODEL_%s_%s_%i %i\n", model_name_uppercase, scene_name_uppercase, frame - baseframe, frame);
 		if (frame >= baseframe && qcheaderfile)
-			fprintf(qcheaderfile, " %s_%i", scene_name_lowercase, frame - baseframe + 1);
+			fprintf(qcheaderfile, " %s_%s_%i", model_name_lowercase, scene_name_lowercase, frame - baseframe + 1);
 	}
 	if (headerfile)
 	{
 		fprintf(headerfile, "#define MODEL_%s_%s_START %i\n", model_name_uppercase, scene_name_uppercase, baseframe);
 		fprintf(headerfile, "#define MODEL_%s_%s_END %i\n", model_name_uppercase, scene_name_uppercase, numframes);
 		fprintf(headerfile, "#define MODEL_%s_%s_LENGTH %i\n", model_name_uppercase, scene_name_uppercase, numframes - baseframe);
+		fprintf(headerfile, "#define MODEL_%s_%s_FRAMERATE %g\n", model_name_uppercase, scene_name_uppercase, sceneframerate);
 		fprintf(headerfile, "\n");
 	}
 	if (qcheaderfile)
 		fprintf(qcheaderfile, "\n");
+
 	return 1;
 }
 
@@ -911,7 +970,7 @@ int parsetriangles(void)
 	while (COM_ParseToken(&tokenpos, true))
 	{
 		// if this is the end keyword, we're done with this section of the file
-		if (!strcmp(com_token, "end"))
+		if (!strcasecmp(com_token, "end"))
 			break;
 
 		// get the shader name (already parsed)
@@ -922,7 +981,7 @@ int parsetriangles(void)
 		found = 0;
 		for (i = 0;i < numshaders;i++)
 		{
-			if (!strcmp(shaders[i], cleanline))
+			if (!strcasecmp(shaders[i], cleanline))
 			{
 				found = 1;
 				break;
@@ -1168,7 +1227,7 @@ int parsemodelfile(void)
 	tokenpos = modelfile;
 	while (COM_ParseToken(&tokenpos, false))
 	{
-		if (!strcmp(com_token, "version"))
+		if (!strcasecmp(com_token, "version"))
 		{
 			COM_ParseToken(&tokenpos, true);
 			if (atoi(com_token) != 1)
@@ -1177,21 +1236,21 @@ int parsemodelfile(void)
 				return 0;
 			}
 		}
-		else if (!strcmp(com_token, "nodes"))
+		else if (!strcasecmp(com_token, "nodes"))
 		{
 			// skip any trailing parameters (might be a later version of smd)
 			while (COM_ParseToken(&tokenpos, true) && com_token[0] != '\n');
 			if (!parsenodes())
 				return 0;
 		}
-		else if (!strcmp(com_token, "skeleton"))
+		else if (!strcasecmp(com_token, "skeleton"))
 		{
 			// skip any trailing parameters (might be a later version of smd)
 			while (COM_ParseToken(&tokenpos, true) && com_token[0] != '\n');
 			if (!parseskeleton())
 				return 0;
 		}
-		else if (!strcmp(com_token, "triangles"))
+		else if (!strcasecmp(com_token, "triangles"))
 		{
 			// skip any trailing parameters (might be a later version of smd)
 			while (COM_ParseToken(&tokenpos, true) && com_token[0] != '\n');
@@ -1217,7 +1276,7 @@ int addattachments(void)
 		bones[numbones].parent = -1;
 		bones[numbones].flags = DPMBONEFLAG_ATTACH;
 		for (j = 0;j < numbones;j++)
-			if (!strcmp(bones[j].name, attachments[i].parentname))
+			if (!strcasecmp(bones[j].name, attachments[i].parentname))
 				bones[numbones].parent = j;
 		if (bones[numbones].parent < 0)
 			printf("warning: unable to find bone \"%s\" for attachment \"%s\", using root instead\n", attachments[i].parentname, attachments[i].name);
@@ -1771,54 +1830,34 @@ int sc_invert(void)
 
 int sc_scene(void)
 {
+	int ret = 0;
 	char *c;
 	char filename[MAX_FILEPATH];
 	c = gettoken();
-	if (!c)
-		return 0;
-	if (!isfilename(c))
-		return 0;
-	modelfile = readfile(c, NULL);
-	if (!modelfile)
-		return 0;
-	cleancopyname(scene_name, c, MAX_NAME);
-	chopextension(scene_name);
-	stringtouppercase(scene_name, scene_name_uppercase);
-	stringtolowercase(scene_name, scene_name_lowercase);
-	printf("parsing scene %s\n", scene_name);
-	if (!headerfile)
+	if (c)
 	{
-		sprintf(filename, "%s%s.h", outputdir_name, model_name);
-		headerfile = fopen(filename, "w");
-		if (headerfile)
+		strcpy(filename, c);
+		if (isfilename(filename))
 		{
-			fprintf(headerfile, "/*\n");
-			fprintf(headerfile, "Generated header file for %s\n", model_name);
-			fprintf(headerfile, "This file contains frame number definitions for use in code referencing the model, to make code more readable and maintainable.\n");
-			fprintf(headerfile, "*/\n");
-			fprintf(headerfile, "\n");
-			fprintf(headerfile, "#ifndef MODEL_%s_H\n", model_name_uppercase);
-			fprintf(headerfile, "#define MODEL_%s_H\n", model_name_uppercase);
-			fprintf(headerfile, "\n");
+			c = gettoken();
+			if (!strcmp(c, "fps"))
+				sceneframerate = atoi(gettoken());
+			else
+				sceneframerate = 10;
+			if (sceneframerate)
+			{
+				modelfile = readfile(filename, NULL);
+				if (modelfile)
+				{
+					cleancopyname(scene_name, filename, MAX_NAME);
+					if (parsemodelfile())
+						ret = 1;
+					free(modelfile);
+				}
+			}
 		}
 	}
-	if (!qcheaderfile)
-	{
-		sprintf(filename, "%s%s.qc", outputdir_name, model_name);
-		qcheaderfile = fopen(filename, "w");
-		if (qcheaderfile)
-		{
-			fprintf(qcheaderfile, "/*\n");
-			fprintf(qcheaderfile, "Generated header file for %s\n", model_name);
-			fprintf(qcheaderfile, "This file contains frame number definitions for use in code referencing the model, simply copy and paste into your qc file.\n");
-			fprintf(qcheaderfile, "*/\n");
-			fprintf(qcheaderfile, "\n");
-		}
-	}
-	if (!parsemodelfile())
-		return 0;
-	free(modelfile);
-	return 1;
+	return ret;
 }
 
 int sc_comment(void)
@@ -1855,7 +1894,7 @@ int processcommand(char *command)
 	c = sc_commands;
 	while (c->name[0])
 	{
-		if (!strcmp(c->name, command))
+		if (!strcasecmp(c->name, command))
 		{
 			printf("executing command %s\n", command);
 			r = c->code();
@@ -1896,6 +1935,12 @@ void processscript(void)
 		fprintf(qcheaderfile, "\n// end of frame definitions for %s\n\n\n", model_name);
 		fclose(qcheaderfile);
 		qcheaderfile = NULL;
+	}
+	if (qhheaderfile)
+	{
+		fprintf(qhheaderfile, "\n// end of animation definitions for %s\n\n\n", model_name);
+		fclose(qhheaderfile);
+		qhheaderfile = NULL;
 	}
 	if (!addattachments())
 	{
