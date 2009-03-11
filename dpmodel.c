@@ -1465,6 +1465,10 @@ void fixrootbones(void)
 	bonepose_t rootpose;
 
 	AngleVectors(modelrotate, rootpose.m[0], rootpose.m[1], rootpose.m[2]);
+	// AngleVectors makes a right vector, we need a left vector
+	rootpose.m[1][0] *= -1;
+	rootpose.m[1][1] *= -1;
+	rootpose.m[1][2] *= -1;
 	rootpose.m[0][3] = -modelorigin[0] * rootpose.m[0][0] + -modelorigin[1] * rootpose.m[1][0] + -modelorigin[2] * rootpose.m[2][0];
 	rootpose.m[1][3] = -modelorigin[0] * rootpose.m[0][1] + -modelorigin[1] * rootpose.m[1][1] + -modelorigin[2] * rootpose.m[2][1];
 	rootpose.m[2][3] = -modelorigin[0] * rootpose.m[0][2] + -modelorigin[1] * rootpose.m[1][2] + -modelorigin[2] * rootpose.m[2][2];
@@ -1706,7 +1710,7 @@ int sc_rotate(void)
 	modelrotate[0] = atof(c);
 	
 	c = gettoken();
-	if(c)
+	if(c && *c && *c != '\n' && *c != '\r')
 	{
 		if(!isdouble(c))
 			return 0;
@@ -1738,7 +1742,7 @@ int sc_scale(void)
 	modelscale[0] = atof(c);
 	
 	c = gettoken();
-	if(c)
+	if(c && *c && *c != '\n' && *c != '\r')
 	{
 		if(!isdouble(c))
 			return 0;
