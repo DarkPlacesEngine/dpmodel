@@ -59,6 +59,7 @@ static char scene_name_lowercase[MAX_FILEPATH];
 static FILE *headerfile = NULL;
 static FILE *qcheaderfile = NULL;
 static FILE *qhheaderfile = NULL;
+static FILE *animinfofile = NULL;
 
 static double modelorigin[3] = {0, 0, 0}, modelrotate[3] = {0, 0, 0}, modelscale[3] = {1, 1, 1};
 static int modelinvert = 0;
@@ -873,7 +874,22 @@ int parseskeleton(void)
 			fprintf(qhheaderfile, "\n");
 		}
 	}
+	if (!animinfofile)
+	{
+		sprintf(temp, "%s%s.dpm.animinfo", outputdir_name, model_name);
+		animinfofile = fopen(temp, "w");
+		if (animinfofile)
+		{
+			fprintf(animinfofile, "/*\n");
+			fprintf(animinfofile, "Generated header file for %s\n", model_name);
+			fprintf(animinfofile, "This file contains frame number definitions for use in code referencing the model, simply copy and paste into your qc file.\n");
+			fprintf(animinfofile, "*/\n");
+			fprintf(animinfofile, "\n");
+		}
+	}
 
+	if (animinfofile && numframes > 1)
+		fprintf(animinfofile, "%i %i %g // %s %s\n", baseframe, numframes - baseframe, sceneframerate, model_name_lowercase, scene_name_lowercase);
 	if (qhheaderfile)
 		fprintf(qhheaderfile, "vector anim_%s_%s = '%i %i %g';\n", model_name_lowercase, scene_name_lowercase, baseframe, numframes - baseframe, sceneframerate);
 	if (frame >= baseframe && qcheaderfile)
@@ -1941,6 +1957,12 @@ void processscript(void)
 		fprintf(qhheaderfile, "\n// end of animation definitions for %s\n\n\n", model_name);
 		fclose(qhheaderfile);
 		qhheaderfile = NULL;
+	}
+	if (animinfofile)
+	{
+		fprintf(animinfofile, "\n// end of animinfo definitions for %s\n\n\n", model_name);
+		fclose(animinfofile);
+		animinfofile = NULL;
 	}
 	if (!addattachments())
 	{
