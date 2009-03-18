@@ -1857,7 +1857,10 @@ int sc_scene(void)
 		{
 			c = gettoken();
 			if (!strcmp(c, "fps"))
+			{
 				sceneframerate = atoi(gettoken());
+				c = gettoken(); // either "noloop", or our newline
+			}
 			else
 				sceneframerate = 10;
 			if (sceneframerate)
@@ -1891,11 +1894,13 @@ sccommand sc_commands[] =
 {
 	{"attachment", sc_attachment},
 	{"outputdir", sc_outputdir},
-	{"model", sc_model},
 	{"texturedir", sc_texturedir},
+	{"output", sc_model},
+	{"model", sc_model},
 	{"origin", sc_origin},
 	{"rotate", sc_rotate},
 	{"scale", sc_scale},
+	{"mesh", sc_scene},
 	{"scene", sc_scene},
 	{"invert", sc_invert},
 	{"#", sc_comment},
