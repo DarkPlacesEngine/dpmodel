@@ -64,6 +64,7 @@ static FILE *animinfofile = NULL;
 static double modelorigin[3] = {0, 0, 0}, modelrotate[3] = {0, 0, 0}, modelscale[3] = {1, 1, 1};
 static int modelinvert = 0;
 static double sceneframerate = 10;
+static int sceneloop = 0;
 
 // this makes it keep all bones, not removing unused ones (as they might be used for attachments)
 static int keepallbones = 1;
@@ -889,7 +890,7 @@ int parseskeleton(void)
 	}
 
 	if (animinfofile && numframes > 1)
-		fprintf(animinfofile, "%i %i %g // %s %s\n", baseframe, numframes - baseframe, sceneframerate, model_name_lowercase, scene_name_lowercase);
+		fprintf(animinfofile, "%i %i %g %i // %s %s\n", baseframe, numframes - baseframe, sceneframerate, sceneloop, model_name_lowercase, scene_name_lowercase);
 	if (qhheaderfile)
 		fprintf(qhheaderfile, "vector anim_%s_%s = '%i %i %g';\n", model_name_lowercase, scene_name_lowercase, baseframe, numframes - baseframe, sceneframerate);
 	if (frame >= baseframe && qcheaderfile)
@@ -1855,11 +1856,14 @@ int sc_scene(void)
 		strcpy(filename, c);
 		if (isfilename(filename))
 		{
+			sceneloop = 1;
 			c = gettoken();
 			if (!strcmp(c, "fps"))
 			{
 				sceneframerate = atoi(gettoken());
 				c = gettoken(); // either "noloop", or our newline
+				if(!strcmp(c, "noloop"))
+					sceneloop = 0;
 			}
 			else
 				sceneframerate = 10;
