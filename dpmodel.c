@@ -60,11 +60,13 @@ static FILE *headerfile = NULL;
 static FILE *qcheaderfile = NULL;
 static FILE *qhheaderfile = NULL;
 static FILE *animinfofile = NULL;
+static FILE *framegroupsfile = NULL;
 
 static double modelorigin[3] = {0, 0, 0}, modelrotate[3] = {0, 0, 0}, modelscale[3] = {1, 1, 1};
 static int modelinvert = 0;
 static double sceneframerate = 10;
 static int sceneloop = 0;
+static int sceneframegroups = 0;
 
 // this makes it keep all bones, not removing unused ones (as they might be used for attachments)
 static int keepallbones = 1;
@@ -478,6 +480,7 @@ int numattachments = 0;
 attachment attachments[MAX_ATTACHMENTS];
 
 int numframes = 0;
+int framegroup = 0;
 frame_t frames[MAX_FRAMES];
 int numbones = 0;
 bone_t bones[MAX_BONES]; // master bone list
@@ -660,6 +663,34 @@ int parsenodes(void)
 	// skip any trailing parameters (might be a later version of smd)
 	while (COM_ParseToken(&tokenpos, true) && com_token[0] != '\n');
 	return 1;
+}
+
+void animinfo_write(int base, int num, float framerate)
+{
+	int frame;
+	if(animinfofile && num > 1)
+		fprintf(animinfofile, "%i %i %g // %s %s\n", base, num - base, framerate, model_name_lowercase, scene_name_lowercase);
+	if (qhheaderfile)
+		fprintf(qhheaderfile, "vector anim_%s_%s = '%i %i %g';\n", model_name_lowercase, scene_name_lowercase, base, num - base, framerate);
+	if (num >= base && qcheaderfile)
+		fprintf(qcheaderfile, "$frame");
+	for (frame = base;frame < num;frame++)
+	{
+		if (headerfile)
+			fprintf(headerfile, "#define MODEL_%s_%s_%i %i\n", model_name_uppercase, scene_name_uppercase, frame - base, frame);
+		if (qcheaderfile)
+			fprintf(qcheaderfile, " %s_%s_%i", model_name_lowercase, scene_name_lowercase, frame - base + 1);
+	}
+	if (headerfile)
+	{
+		fprintf(headerfile, "#define MODEL_%s_%s_START %i\n", model_name_uppercase, scene_name_uppercase, base);
+		fprintf(headerfile, "#define MODEL_%s_%s_END %i\n", model_name_uppercase, scene_name_uppercase, num);
+		fprintf(headerfile, "#define MODEL_%s_%s_LENGTH %i\n", model_name_uppercase, scene_name_uppercase, num - base);
+		fprintf(headerfile, "#define MODEL_%s_%s_FRAMERATE %g\n", model_name_uppercase, scene_name_uppercase, framerate);
+		fprintf(headerfile, "\n");
+	}
+	if (qcheaderfile)
+		fprintf(qcheaderfile, "\n");
 }
 
 int parseskeleton(void)
@@ -879,58 +910,64 @@ int parseskeleton(void)
 	if (!animinfofile)
 	{
 		// you can never usefully have both formats
-		if(framegroups)
-			sprintf(temp, "%s%s.dpm.animinfo", outputdir_name, model_name);
-		else
-			sprintf(temp, "%s%s.dpm.framegroups", outputdir_name, model_name);
+		sprintf(temp, "%s%s.dpm.animinfo", outputdir_name, model_name);
 		animinfofile = fopen(temp, "w");
 		if (animinfofile)
 		{
 			fprintf(animinfofile, "/*\n");
-			if(framegroups)
-			{
-				fprintf(animinfofile, "Generated framegroups file for %s\n", model_name);
-				fprintf(animinfofile, "Used by DarkPlaces to simulate frame groups in DPM models.\n");
-				fprintf(animinfofile, "NOTE: when this file is used, single frames cannot be addressed by game code.\n");
-			}
-			else
-			{
-				fprintf(animinfofile, "Generated animinfo file for %s\n", model_name);
-				fprintf(animinfofile, "Useful for game code to simulate frame groups in DPM models.\n");
-			}
+			fprintf(animinfofile, "Generated animinfo file for %s\n", model_name);
+			fprintf(animinfofile, "Useful for game code to simulate frame groups in DPM models.\n");
 			fprintf(animinfofile, "*/\n");
 			fprintf(animinfofile, "\n");
 		}
 	}
+	if (!framegroupsfile && framegroups)
+	{
+		// you can never usefully have both formats
+		sprintf(temp, "%s%s.dpm.framegroups", outputdir_name, model_name);
+		framegroupsfile = fopen(temp, "w");
+		if (framegroupsfile)
+		{
+			fprintf(framegroupsfile, "/*\n");
+			fprintf(framegroupsfile, "Generated framegroups file for %s\n", model_name);
+			fprintf(framegroupsfile, "Used by DarkPlaces to simulate frame groups in DPM models.\n");
+			fprintf(framegroupsfile, "*/\n");
+			fprintf(framegroupsfile, "\n");
+		}
+	}
 
-	if (animinfofile && numframes > 1)
+	if(numframes > 1)
 	{
-		if(framegroups)
-			fprintf(animinfofile, "%i %i %g %i // %s %s\n", baseframe, numframes - baseframe, sceneframerate, sceneloop, model_name_lowercase, scene_name_lowercase);
-		else
-			fprintf(animinfofile, "%i %i %g // %s %s\n", baseframe, numframes - baseframe, sceneframerate, model_name_lowercase, scene_name_lowercase);
+		if(sceneframegroups && framegroups)
+		{
+			// real framegroups entry
+			if(framegroupsfile)
+				fprintf(framegroupsfile, "%i %i %g %i // %s %s\n", baseframe, numframes - baseframe, sceneframerate, sceneloop, model_name_lowercase, scene_name_lowercase);
+
+			// dummy animinfo entry
+			animinfo_write(framegroup, 1, 0.01);
+
+			++framegroup;
+		}
+		else if(!sceneframegroups && framegroups)
+		{
+			// real animinfo entry
+			animinfo_write(framegroup, numframes - baseframe, sceneframerate);
+
+			// dummy framegroups entries
+			for(i = 0; i < numframes - baseframe; ++i)
+				if(framegroupsfile)
+					fprintf(framegroupsfile, "%i %i %g %i // %s %s\n", baseframe + i, 1, 1.0, 0, model_name_lowercase, scene_name_lowercase);
+
+			framegroup += numframes - baseframe;
+		}
+		else // if(!framegroups)
+		{
+			animinfo_write(baseframe, numframes - baseframe, sceneframerate);
+		}
 	}
-	if (qhheaderfile)
-		fprintf(qhheaderfile, "vector anim_%s_%s = '%i %i %g';\n", model_name_lowercase, scene_name_lowercase, baseframe, numframes - baseframe, sceneframerate);
-	if (frame >= baseframe && qcheaderfile)
-		fprintf(qcheaderfile, "$frame");
-	for (frame = 0;frame < numframes;frame++)
-	{
-		if (frame >= baseframe && headerfile)
-			fprintf(headerfile, "#define MODEL_%s_%s_%i %i\n", model_name_uppercase, scene_name_uppercase, frame - baseframe, frame);
-		if (frame >= baseframe && qcheaderfile)
-			fprintf(qcheaderfile, " %s_%s_%i", model_name_lowercase, scene_name_lowercase, frame - baseframe + 1);
-	}
-	if (headerfile)
-	{
-		fprintf(headerfile, "#define MODEL_%s_%s_START %i\n", model_name_uppercase, scene_name_uppercase, baseframe);
-		fprintf(headerfile, "#define MODEL_%s_%s_END %i\n", model_name_uppercase, scene_name_uppercase, numframes);
-		fprintf(headerfile, "#define MODEL_%s_%s_LENGTH %i\n", model_name_uppercase, scene_name_uppercase, numframes - baseframe);
-		fprintf(headerfile, "#define MODEL_%s_%s_FRAMERATE %g\n", model_name_uppercase, scene_name_uppercase, sceneframerate);
-		fprintf(headerfile, "\n");
-	}
-	if (qcheaderfile)
-		fprintf(qcheaderfile, "\n");
+	else
+		animinfo_write(baseframe, numframes - baseframe, sceneframerate); // reference pose
 
 	return 1;
 }
@@ -1876,13 +1913,21 @@ int sc_scene(void)
 		if (isfilename(filename))
 		{
 			sceneloop = 1;
+			sceneframegroups = 1;
 			c = gettoken();
 			if (!strcmp(c, "fps"))
 			{
 				sceneframerate = atoi(gettoken());
-				c = gettoken(); // either "noloop", or our newline
-				if(!strcmp(c, "noloop"))
-					sceneloop = 0;
+				for(;;)
+				{
+					c = gettoken(); // either "noloop", or "noframegroups", or our newline
+					if(!strcmp(c, "noloop"))
+						sceneloop = 0;
+					else if(!strcmp(c, "noframegroups"))
+						sceneframegroups = 0;
+					else
+						break;
+				}
 			}
 			else
 				sceneframerate = 10;
