@@ -665,16 +665,16 @@ int parsenodes(void)
 	return 1;
 }
 
-void animinfo_write(int base, int num, float framerate)
+void animinfo_write(int base, int num, float framerate, int isanim)
 {
 	int frame;
-	if(animinfofile && num > 1)
-		fprintf(animinfofile, "%i %i %g // %s %s\n", base, num - base, framerate, model_name_lowercase, scene_name_lowercase);
+	if(animinfofile && isanim)
+		fprintf(animinfofile, "%i %i %g // %s %s\n", base, num, framerate, model_name_lowercase, scene_name_lowercase);
 	if (qhheaderfile)
-		fprintf(qhheaderfile, "vector anim_%s_%s = '%i %i %g';\n", model_name_lowercase, scene_name_lowercase, base, num - base, framerate);
-	if (num >= base && qcheaderfile)
+		fprintf(qhheaderfile, "vector anim_%s_%s = '%i %i %g';\n", model_name_lowercase, scene_name_lowercase, base, num, framerate);
+	if (num >= 0 && qcheaderfile)
 		fprintf(qcheaderfile, "$frame");
-	for (frame = base;frame < num;frame++)
+	for (frame = base;frame < num + base;frame++)
 	{
 		if (headerfile)
 			fprintf(headerfile, "#define MODEL_%s_%s_%i %i\n", model_name_uppercase, scene_name_uppercase, frame - base, frame);
@@ -684,8 +684,8 @@ void animinfo_write(int base, int num, float framerate)
 	if (headerfile)
 	{
 		fprintf(headerfile, "#define MODEL_%s_%s_START %i\n", model_name_uppercase, scene_name_uppercase, base);
-		fprintf(headerfile, "#define MODEL_%s_%s_END %i\n", model_name_uppercase, scene_name_uppercase, num);
-		fprintf(headerfile, "#define MODEL_%s_%s_LENGTH %i\n", model_name_uppercase, scene_name_uppercase, num - base);
+		fprintf(headerfile, "#define MODEL_%s_%s_END %i\n", model_name_uppercase, scene_name_uppercase, num + base);
+		fprintf(headerfile, "#define MODEL_%s_%s_LENGTH %i\n", model_name_uppercase, scene_name_uppercase, num);
 		fprintf(headerfile, "#define MODEL_%s_%s_FRAMERATE %g\n", model_name_uppercase, scene_name_uppercase, framerate);
 		fprintf(headerfile, "\n");
 	}
@@ -945,14 +945,14 @@ int parseskeleton(void)
 				fprintf(framegroupsfile, "%i %i %g %i // %s %s\n", baseframe, numframes - baseframe, sceneframerate, sceneloop, model_name_lowercase, scene_name_lowercase);
 
 			// dummy animinfo entry
-			animinfo_write(framegroup, 1, 0.01);
+			animinfo_write(framegroup, 1, 0.01, true);
 
 			++framegroup;
 		}
 		else if(!sceneframegroups && framegroups)
 		{
 			// real animinfo entry
-			animinfo_write(framegroup, numframes - baseframe, sceneframerate);
+			animinfo_write(framegroup, numframes - baseframe, sceneframerate, true);
 
 			// dummy framegroups entries
 			for(i = 0; i < numframes - baseframe; ++i)
@@ -963,11 +963,11 @@ int parseskeleton(void)
 		}
 		else // if(!framegroups)
 		{
-			animinfo_write(baseframe, numframes - baseframe, sceneframerate);
+			animinfo_write(baseframe, numframes - baseframe, sceneframerate, true);
 		}
 	}
 	else
-		animinfo_write(baseframe, numframes - baseframe, sceneframerate); // reference pose
+		animinfo_write(baseframe, numframes - baseframe, sceneframerate, false); // reference pose
 
 	return 1;
 }
