@@ -912,14 +912,7 @@ int parseskeleton(void)
 		// you can never usefully have both formats
 		sprintf(temp, "%s%s.dpm.animinfo", outputdir_name, model_name);
 		animinfofile = fopen(temp, "w");
-		if (animinfofile)
-		{
-			fprintf(animinfofile, "/*\n");
-			fprintf(animinfofile, "Generated animinfo file for %s\n", model_name);
-			fprintf(animinfofile, "Useful for game code to simulate frame groups in DPM models.\n");
-			fprintf(animinfofile, "*/\n");
-			fprintf(animinfofile, "\n");
-		}
+		// do not write a start comment to the animinfo file, as the QC code cannot skip it
 	}
 	if (!framegroupsfile && framegroups)
 	{
