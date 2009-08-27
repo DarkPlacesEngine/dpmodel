@@ -1908,7 +1908,7 @@ int sc_scene(void)
 			sceneloop = 1;
 			sceneframegroups = 1;
 			c = gettoken();
-			if (!strcmp(c, "fps"))
+			if (c && !strcmp(c, "fps"))
 			{
 				sceneframerate = atoi(gettoken());
 				for(;;)
@@ -1942,7 +1942,8 @@ int sc_scene(void)
 
 int sc_comment(void)
 {
-	while (gettoken()[0] != '\n');
+	char *c;
+	while ((c = gettoken()) && c[0] != '\n');
 	return 1;
 }
 
