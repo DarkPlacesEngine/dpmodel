@@ -70,7 +70,6 @@ static int sceneframegroups = 0;
 
 // this makes it keep all bones, not removing unused ones (as they might be used for attachments)
 static int keepallbones = 1;
-static int framegroups = 0;
 
 void stringtouppercase(char *in, char *out)
 {
@@ -914,7 +913,7 @@ int parseskeleton(void)
 		animinfofile = fopen(temp, "w");
 		// do not write a start comment to the animinfo file, as the QC code cannot skip it
 	}
-	if (!framegroupsfile && framegroups)
+	if (!framegroupsfile)
 	{
 		// you can never usefully have both formats
 		sprintf(temp, "%s%s.dpm.framegroups", outputdir_name, model_name);
@@ -931,7 +930,7 @@ int parseskeleton(void)
 
 	if(numframes > 1)
 	{
-		if(sceneframegroups && framegroups)
+		if(sceneframegroups)
 		{
 			// real framegroups entry
 			if(framegroupsfile)
@@ -942,7 +941,7 @@ int parseskeleton(void)
 
 			++framegroup;
 		}
-		else if(!sceneframegroups && framegroups)
+		else if(!sceneframegroups)
 		{
 			// real animinfo entry
 			animinfo_write(framegroup, numframes - baseframe, sceneframerate, true);
@@ -1906,18 +1905,17 @@ int sc_scene(void)
 		if (isfilename(filename))
 		{
 			sceneloop = 1;
-			sceneframegroups = 1;
+			sceneframegroups = 0;
 			c = gettoken();
 			if (c && !strcmp(c, "fps"))
 			{
 				sceneframerate = atoi(gettoken());
+				sceneframegroups = 1;
 				for(;;)
 				{
 					c = gettoken(); // either "noloop", or "noframegroups", or our newline
-					if(!strcmp(c, "noloop"))
+					if(c && !strcmp(c, "noloop"))
 						sceneloop = 0;
-					else if(!strcmp(c, "noframegroups"))
-						sceneframegroups = 0;
 					else
 						break;
 				}
@@ -1947,12 +1945,6 @@ int sc_comment(void)
 	return 1;
 }
 
-int sc_framegroups(void)
-{
-	framegroups = 1;
-	return 1;
-}
-
 int sc_nothing(void)
 {
 	return 1;
@@ -1971,8 +1963,9 @@ sccommand sc_commands[] =
 	{"mesh", sc_scene},
 	{"scene", sc_scene},
 	{"invert", sc_invert},
-	{"framegroups", sc_framegroups},
 	{"#", sc_comment},
+	{"framegroups", sc_nothing}, // framegroups file is always written
+	{"noframegroups", sc_nothing}, // implied when no fps are given
 	{"\n", sc_nothing},
 	{"", NULL}
 };
