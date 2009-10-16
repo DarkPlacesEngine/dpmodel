@@ -2451,7 +2451,7 @@ int writemodel_md3(void)
 	putlelong(numframes); // frames
 	numtags = 0;
 	for (i = 0;i < numbones;i++)
-		if (!strncmp(bones[i].name, "TAG_", 4))
+		if (!strncasecmp(bones[i].name, "TAG_", 4))
 			numtags++;
 	putlelong(numtags); // number of tags per frame
 	putlelong(numshaders); // number of meshes
@@ -2499,7 +2499,7 @@ int writemodel_md3(void)
 			}
 			for (j = 0;j < numbones;j++)
 			{
-				if (strncmp(bones[j].name, "TAG_", 4))
+				if (strncasecmp(bones[j].name, "TAG_", 4))
 					continue;
 				putstring(bones[j].name, 64);
 				// output the origin and then 9 rotation floats
