@@ -937,7 +937,7 @@ int parseskeleton(void)
 				fprintf(framegroupsfile, "%i %i %g %i // %s %s\n", baseframe, numframes - baseframe, sceneframerate, sceneloop, model_name_lowercase, scene_name_lowercase);
 
 			// dummy animinfo entry
-			animinfo_write(framegroup, 1, 0.01, true);
+			animinfo_write(framegroup, 1, sceneframerate / (numframes - baseframe), true);
 
 			++framegroup;
 		}
