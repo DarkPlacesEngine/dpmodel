@@ -934,14 +934,14 @@ int parseskeleton(void)
 		{
 			// real framegroups entry
 			if(framegroupsfile)
-				fprintf(framegroupsfile, "%i %i %g %i %s // %s\n", baseframe, numframes - baseframe, sceneframerate, sceneloop, scene_name_lowercase, model_name_lowercase);
+				fprintf(framegroupsfile, "%i %i %g %i %s\n", baseframe, numframes - baseframe, sceneframerate, sceneloop, scene_name_lowercase);
 
 			// dummy animinfo entry
 			animinfo_write(framegroup, 1, sceneframerate / (numframes - baseframe), true);
 
 			++framegroup;
 		}
-		else if(!sceneframegroups)
+		else // if(!sceneframegroups)
 		{
 			// real animinfo entry
 			animinfo_write(framegroup, numframes - baseframe, sceneframerate, true);
@@ -949,13 +949,9 @@ int parseskeleton(void)
 			// dummy framegroups entries
 			for(i = 0; i < numframes - baseframe; ++i)
 				if(framegroupsfile)
-					fprintf(framegroupsfile, "%i %i %g %i // %s %s\n", baseframe + i, 1, 1.0, 0, model_name_lowercase, scene_name_lowercase);
+					fprintf(framegroupsfile, "%i %i %g %i %s\n", baseframe + i, 1, 1.0, 0, scene_name_lowercase);
 
 			framegroup += numframes - baseframe;
-		}
-		else // if(!framegroups)
-		{
-			animinfo_write(baseframe, numframes - baseframe, sceneframerate, true);
 		}
 	}
 	else
