@@ -1,8 +1,8 @@
 
 // converter for .smd files (and a .txt script) to .dpm
-// written by Forest 'LordHavoc' Hale but placed into public domain
+// written by Ashley Rose Hale (LadyHavoc) but placed into public domain
 //
-// disclaimer: Forest Hale is not not responsible if this code blinds you with
+// disclaimer: Ashley Rose Hale (LadyHavoc) is not not responsible if this code blinds you with
 // its horrible design, sets your house on fire, makes you cry,
 // or anything else - use at your own risk.
 //
@@ -178,7 +178,7 @@ void makepath(char *text)
 	}
 }
 
-// LordHavoc: taken from DarkPlaces
+// LadyHavoc: taken from DarkPlaces
 typedef enum qboolean_e {false = 0, true = 1} qboolean;
 #define MAX_TOKEN_CHARS 1024
 char com_token[MAX_TOKEN_CHARS];
@@ -824,7 +824,7 @@ int parseskeleton(void)
 				printf("error: bone %i not defined\n", num);
 				return 0;
 			}
-			// LordHavoc: compute matrix
+			// LadyHavoc: compute matrix
 			frames[frame].bones[num] = computebonematrix(x * modelscale[0], y * modelscale[1], z * modelscale[2], a, b, c);
 		}
 		// skip any trailing parameters (might be a later version of smd)
